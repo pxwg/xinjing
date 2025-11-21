@@ -1,161 +1,167 @@
-# An MCP-based Chatbot | 一个基于 MCP 的聊天机器人
+# 心镜 (Heart Mirror)
 
-（中文 | [English](README_en.md) | [日本語](README_ja.md)）
+## 愿景 (Vision)
 
-## 视频
+“心镜”是一个 100% 私有化、用于自我觉察和认知增强的环境 AI。
 
-👉 [人类：给 AI 装摄像头 vs AI：当场发现主人三天没洗头【bilibili】](https://www.bilibili.com/video/BV1bpjgzKEhd/)
+它不是一个助手，而是一面镜子。
 
-👉 [手工打造你的 AI 女友，新手入门教程【bilibili】](https://www.bilibili.com/video/BV1XnmFYLEJN/)
+市面上所有的 AI 助手都是“命令驱动”的仆人：您下达指令，它执行任务。这满足了“效率”，但忽略了一个更深层次的需求：我们对自己实时的情绪和精神状态，其实非常“无知”。
 
-## 介绍
+“心镜”的核心价值不是“服务”，而是“自省”。它是一个环境计算设备，其唯一目标是：
 
-这是一个由虾哥开源的 ESP32 项目，以 MIT 许可证发布，允许任何人免费使用，或用于商业用途。
+- 绝对私密地感知您所处的环境。
 
-我们希望通过这个项目，能够帮助大家了解 AI 硬件开发，将当下飞速发展的大语言模型应用到实际的硬件设备中。
+- 被动地、静默地为您分析和量化您的状态。
 
-如果你有任何想法或建议，请随时提出 Issues 或加入 QQ 群：1011329060
+## 核心原则 (Core Principles)
 
-### 基于 MCP 控制万物
+- 隐私基石 (Privacy-First)：任何原始音频数据永远不会离开您的私有网络。所有 AI 分析均在您的私有服务器（如 NAS、NUC 或家用服务器）上运行的本地 LLM/STT 模型上完成。
 
-小智 AI 聊天机器人作为一个语音交互入口，利用 Qwen / DeepSeek 等大模型的 AI 能力，通过 MCP 协议实现多端控制。
+- 用户主权 (User Sovereignty)：用户必须能在首次启动时，通过透明的界面（WiFi 门户）自由配置自己的 WiFi 凭据（包括 WPA2-Enterprise 用户名）和私有服务器地址。
 
-![通过MCP控制万物](docs/mcp-based-graph.jpg)
+- 被动感知 (Passive Perception)：设备的主要模式不是等待唤醒词，而是持续地、低功耗地感知环境。
 
-### 已实现功能
+- 环境计算 (Ambient Computation)：反馈是静默且非侵入性的。Display 主要用于“氛围灯”和“无声通知”，而非吵闹的语音播报。
 
-- Wi-Fi / ML307 Cat.1 4G
-- 离线语音唤醒 [ESP-SR](https://github.com/espressif/esp-sr)
-- 支持两种通信协议（[Websocket](docs/websocket.md) 或 MQTT+UDP）
-- 采用 OPUS 音频编解码
-- 基于流式 ASR + LLM + TTS 架构的语音交互
-- 声纹识别，识别当前说话人的身份 [3D Speaker](https://github.com/modelscope/3D-Speaker)
-- OLED / LCD 显示屏，支持表情显示
-- 电量显示与电源管理
-- 支持多语言（中文、英文、日文）
-- 支持 ESP32-C3、ESP32-S3、ESP32-P4 芯片平台
-- 通过设备端 MCP 实现设备控制（音量、灯光、电机、GPIO 等）
-- 通过云端 MCP 扩展大模型能力（智能家居控制、PC桌面操作、知识搜索、邮件收发等）
+## 核心架构：边缘（探针）+ 私服（大脑）
 
-## 硬件
+```mermaid
+graph TD
+    subgraph "边缘端 (ESP32 - 感官探针)"
+        BTN(物理隐私按钮) --> App(Application)
+        Mic[麦克风] --> AudioSvc(AudioService)
+        
+        AudioSvc -- "1. 本地声学能量分析 (VAD, 音调)" --> App(Application)
+        App -- "驱动呼吸灯" --> Display(Display/LED)
 
-### 面包板手工制作实践
+        AudioSvc -- "2. 持续音频流 (Opus 编码)" --> Proto(Protocol)
+        
+        Proto -- "3. LLM反馈 (JSON)" --> App
+        App -- "静默通知/精细情绪" --> Display
+    end
 
-详见飞书文档教程：
+    subgraph "私有服务器 (AI 大脑 - 100% 本地部署 Go/Rust)"
+        Proto -- "音频流" --> STT(持续 STT - e.g., faster-whisper)
+        Proto -- "音频流" --> SpeakerID(声纹识别 - e.g., pyannote)
+        
+        STT -- "滚动文本" --> LLM(低烈度 LLM - e.g., Mistral-7B)
+        SpeakerID -- "说话人" --> LLM
+        
+        LLM -- "1. 洞察 (待办/事实)" --> Proto
+        LLM -- "2. 精细情绪" --> Proto
+        LLM -- "3. 事件总结" --> DB[(私有数据库)]
+    end
+```
 
-👉 [《小智 AI 聊天机器人百科全书》](https://ccnphfhqs21z.feishu.cn/wiki/F5krwD16viZoF0kKkvDcrZNYnhb?from=from_copylink)
+## 功能特性 (Features)
 
-面包板效果图如下：
+- 可配置的私有部署 (Configurable Private Deployment)：在首次启动时，设备将进入配置门户（Captive Portal），允许用户输入 WPA2-Enterprise（用户名 + 密码）凭据，以及自定义的私有服务器 WebSocket URL。
 
-![面包板效果图](docs/v1/wiring2.jpg)
+- 本地能量呼吸灯 (Local Energy Breathing Light)：ESP32 在本地持续分析声学“能量”（语音密度、音调起伏），而非猜测情绪。Display 以此为依据，呈现一个非侵入性的“环境氛围灯”。
 
-### 支持 70 多个开源硬件（仅展示部分）
+- 精细情绪反馈 (Fine-grained Emotion Feedback)：私有 LLM 实时分析您的内容（例如识别到“愤怒”词汇），并立即决策一个“反馈”情绪。它会发送一个 xiaozhi 原生支持的指令（{"type": "llm", "emotion": "fear"}），使设备立即显示“恐惧”或“安抚”的表情。
 
-- <a href="https://oshwhub.com/li-chuang-kai-fa-ban/li-chuang-shi-zhan-pai-esp32-s3-kai-fa-ban" target="_blank" title="立创·实战派 ESP32-S3 开发板">立创·实战派 ESP32-S3 开发板</a>
-- <a href="https://github.com/espressif/esp-box" target="_blank" title="乐鑫 ESP32-S3-BOX3">乐鑫 ESP32-S3-BOX3</a>
-- <a href="https://docs.m5stack.com/zh_CN/core/CoreS3" target="_blank" title="M5Stack CoreS3">M5Stack CoreS3</a>
-- <a href="https://docs.m5stack.com/en/atom/Atomic%20Echo%20Base" target="_blank" title="AtomS3R + Echo Base">M5Stack AtomS3R + Echo Base</a>
-- <a href="https://gf.bilibili.com/item/detail/1108782064" target="_blank" title="神奇按钮 2.4">神奇按钮 2.4</a>
-- <a href="https://www.waveshare.net/shop/ESP32-S3-Touch-AMOLED-1.8.htm" target="_blank" title="微雪电子 ESP32-S3-Touch-AMOLED-1.8">微雪电子 ESP32-S3-Touch-AMOLED-1.8</a>
-- <a href="https://github.com/Xinyuan-LilyGO/T-Circle-S3" target="_blank" title="LILYGO T-Circle-S3">LILYGO T-Circle-S3</a>
-- <a href="https://oshwhub.com/tenclass01/xmini_c3" target="_blank" title="虾哥 Mini C3">虾哥 Mini C3</a>
-- <a href="https://oshwhub.com/movecall/cuican-ai-pendant-lights-up-y" target="_blank" title="Movecall CuiCan ESP32S3">璀璨·AI 吊坠</a>
-- <a href="https://github.com/WMnologo/xingzhi-ai" target="_blank" title="无名科技Nologo-星智-1.54">无名科技 Nologo-星智-1.54TFT</a>
-- <a href="https://www.seeedstudio.com/SenseCAP-Watcher-W1-A-p-5979.html" target="_blank" title="SenseCAP Watcher">SenseCAP Watcher</a>
-- <a href="https://www.bilibili.com/video/BV1BHJtz6E2S/" target="_blank" title="ESP-HI 超低成本机器狗">ESP-HI 超低成本机器狗</a>
+- 情绪日志 (Emotion Log)：私有 LLM 结合文本内容和说话人声纹，判断“强情绪事件”，并将其（例如 `[李四]: 愤怒 - "..."`）存入您的私有数据库，供您日后回顾。
 
-<div style="display: flex; justify-content: space-between;">
-  <a href="docs/v1/lichuang-s3.jpg" target="_blank" title="立创·实战派 ESP32-S3 开发板">
-    <img src="docs/v1/lichuang-s3.jpg" width="240" />
-  </a>
-  <a href="docs/v1/espbox3.jpg" target="_blank" title="乐鑫 ESP32-S3-BOX3">
-    <img src="docs/v1/espbox3.jpg" width="240" />
-  </a>
-  <a href="docs/v1/m5cores3.jpg" target="_blank" title="M5Stack CoreS3">
-    <img src="docs/v1/m5cores3.jpg" width="240" />
-  </a>
-  <a href="docs/v1/atoms3r.jpg" target="_blank" title="AtomS3R + Echo Base">
-    <img src="docs/v1/atoms3r.jpg" width="240" />
-  </a>
-  <a href="docs/v1/magiclick.jpg" target="_blank" title="神奇按钮 2.4">
-    <img src="docs/v1/magiclick.jpg" width="240" />
-  </a>
-  <a href="docs/v1/waveshare.jpg" target="_blank" title="微雪电子 ESP32-S3-Touch-AMOLED-1.8">
-    <img src="docs/v1/waveshare.jpg" width="240" />
-  </a>
-  <a href="docs/v1/lilygo-t-circle-s3.jpg" target="_blank" title="LILYGO T-Circle-S3">
-    <img src="docs/v1/lilygo-t-circle-s3.jpg" width="240" />
-  </a>
-  <a href="docs/v1/xmini-c3.jpg" target="_blank" title="虾哥 Mini C3">
-    <img src="docs/v1/xmini-c3.jpg" width="240" />
-  </a>
-  <a href="docs/v1/movecall-cuican-esp32s3.jpg" target="_blank" title="CuiCan">
-    <img src="docs/v1/movecall-cuican-esp32s3.jpg" width="240" />
-  </a>
-  <a href="docs/v1/wmnologo_xingzhi_1.54.jpg" target="_blank" title="无名科技Nologo-星智-1.54">
-    <img src="docs/v1/wmnologo_xingzhi_1.54.jpg" width="240" />
-  </a>
-  <a href="docs/v1/sensecap_watcher.jpg" target="_blank" title="SenseCAP Watcher">
-    <img src="docs/v1/sensecap_watcher.jpg" width="240" />
-  </a>
-  <a href="docs/v1/esp-hi.jpg" target="_blank" title="ESP-HI 超低成本机器狗">
-    <img src="docs/v1/esp-hi.jpg" width="240" />
-  </a>
-</div>
+- 物理隐私开关 (Physical Privacy Switch)：一个物理按钮，按下后立即在固件层停止 AudioService 的音频流传输，Display 必须显示“已静音”图标，100% 保证用户信任。
 
-## 软件
+## 里程碑 (Milestone)
 
-### 固件烧录
+### Milestone 0: 基金会 (The Foundation: Refactor & Configuration)
 
-新手第一次操作建议先不要搭建开发环境，直接使用免开发环境烧录的固件。
+**目标**：剥离 xiaozhi 的冗余代码，并实现用户可配置的私有化部署。这是所有后续功能的基础。
 
-固件默认接入 [xiaozhi.me](https://xiaozhi.me) 官方服务器，个人用户注册账号可以免费使用 Qwen 实时模型。
+#### Task F-0.1 (固件): 固件精简
 
-👉 [新手烧录固件教程](https://ccnphfhqs21z.feishu.cn/wiki/Zpz4wXBtdimBrLk25WdcXzxcnNS)
+- **描述**：移除 xiaozhi 针对几十种开发板的硬件抽象层（HAL），精简为一个专注的固件。
+- **行动**：
+  1. 删除 `main/boards/` 目录。
+  2. 创建 `main/heart_mirror_board.h`，硬编码目标 ESP32 板（如 DevKitC）的 I2S 麦克风、SPI LCD 和物理隐私按钮的引脚。
+  3. 精简 `main/idf_component.yml`，只保留 `esp-sr`、`esp-opus-encoder`、`lvgl`、`button` 等核心依赖。
+  4. 在 `application.cc` 中，移除 `Board::GetInstance()` 依赖，替换为对 `heart_mirror_board.h` 的直接调用。
 
-### 开发环境
+#### Task F-0.2 (固件): 移除公有云依赖
 
-- Cursor 或 VSCode
-- 安装 ESP-IDF 插件，选择 SDK 版本 5.4 或以上
-- Linux 比 Windows 更好，编译速度快，也免去驱动问题的困扰
-- 本项目使用 Google C++ 代码风格，提交代码时请确保符合规范
+- **描述**：彻底移除所有 xiaozhi 原有的公有云激活、OTA 检查和资产下载逻辑。
+- **行动**：
+  1. 从 `application.cc` 的 `Start()` 方法中删除 `CheckNewVersion()` 和 `CheckAssetsVersion()` 的调用。
+  2. `Protocol` 的初始化将不再依赖 `ota.Has...Config()`。
 
-### 开发者文档
+#### Task F-0.3 (固件): 加载私有配置
 
-- [自定义开发板指南](main/boards/README.md) - 学习如何为小智 AI 创建自定义开发板
-- [MCP 协议物联网控制用法说明](docs/mcp-usage.md) - 了解如何通过 MCP 协议控制物联网设备
-- [MCP 协议交互流程](docs/mcp-protocol.md) - 设备端 MCP 协议的实现方式
-- [MQTT + UDP 混合通信协议文档](docs/mqtt-udp.md)
-- [一份详细的 WebSocket 通信协议文档](docs/websocket.md)
+- **描述**：修改 `Application::Start`，使其在连接网络后，从 NVS 加载并使用配置。
+- **行动**：
+  1. 在 `Start()` 中，网络连接成功后，使用 `Settings settings("heart-mirror", true);` 读取 `server_url`。
+  2. 如果 `server_url` 为空，应显示错误并强制重启进入配置门户。
+  3. 修改 `WebsocketProtocol`（或您选择的协议）的构造函数，使其接受一个 `std::string server_url`。
+  4. 使用加载的 URL 初始化 `protocol_`：`protocol_ = std::make_unique<WebsocketProtocol>(server_url);`。
 
-## 大模型配置
+### Milestone 1: 核心管道（持续串流与转录）
 
-如果你已经拥有一个小智 AI 聊天机器人设备，并且已接入官方服务器，可以登录 [xiaozhi.me](https://xiaozhi.me) 控制台进行配置。
+**目标**：实现 ESP32 到私有服务器的 7x24 持续音频流，并在服务器端成功转录为文本。
 
-👉 [后台操作视频教程（旧版界面）](https://www.bilibili.com/video/BV1jUCUY2EKM/)
+#### Task F-1.1 (固件): 实现“心镜”模式与持续串流
 
-## 相关开源项目
+- **描述**：在 `application.h` 中添加新状态 `kDeviceStateHeartMirror`。实现一个按钮（如 `ToggleChatState`）来进入此模式。
+- **行动**：修改 `SetDeviceState`：当进入 `kDeviceStateHeartMirror` 状态时，调用 `audio_service_.EnableVoiceProcessing(true)` 和 `protocol_->OpenAudioChannel()`。这将自动、持续地触发 `MAIN_EVENT_SEND_AUDIO` 事件，从而复用 `protocol_->SendAudio()` 管道。
 
-在个人电脑上部署服务器，可以参考以下第三方开源的项目：
+#### Task S-1.1 (服务器): 构建音频接收服务 (Go/Rust)
 
-- [xinnan-tech/xiaozhi-esp32-server](https://github.com/xinnan-tech/xiaozhi-esp32-server) Python 服务器
-- [joey-zhou/xiaozhi-esp32-server-java](https://github.com/joey-zhou/xiaozhi-esp32-server-java) Java 服务器
-- [AnimeAIChat/xiaozhi-server-go](https://github.com/AnimeAIChat/xiaozhi-server-go) Golang 服务器
+- **描述**：使用 Go（`gorilla/websocket`）或 Rust（`tungstenite`）构建一个 WebSocket 服务器，以接收 M-0.4 中配置的 URL 连接。
+- **行动**：服务器必须能解析 xiaozhi 的音频包（JSON 头 + Opus 二进制包）。
 
-使用小智通信协议的第三方客户端项目：
+#### Task S-1.2 (服务器): 集成 STT 管道
 
-- [huangjunsen0406/py-xiaozhi](https://github.com/huangjunsen0406/py-xiaozhi) Python 客户端
-- [TOM88812/xiaozhi-android-client](https://github.com/TOM88812/xiaozhi-android-client) Android 客户端
-- [100askTeam/xiaozhi-linux](http://github.com/100askTeam/xiaozhi-linux) 百问科技提供的 Linux 客户端
-- [78/xiaozhi-sf32](https://github.com/78/xiaozhi-sf32) 思澈科技的蓝牙芯片固件
-- [QuecPython/solution-xiaozhiAI](https://github.com/QuecPython/solution-xiaozhiAI) 移远提供的 QuecPython 固件
+- **描述**：将接收到的 Opus 音频流解码并送入本地 STT 引擎。
+- **行动**：使用 libopus 的 FFI (C 绑定) 解码 Opus 数据包，并将 PCM 音频流实时喂给本地 faster-whisper 实例。
+- **验证**：能够在服务器控制台看到 ESP32 端生成的实时滚动字幕。
 
-## Star History
+### Milestone 2: 双向反馈（呼吸灯与精细情绪）
 
-<a href="https://star-history.com/#78/xiaozhi-esp32&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=78/xiaozhi-esp32&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=78/xiaozhi-esp32&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=78/xiaozhi-esp32&type=Date" />
- </picture>
-</a>
+**目标**：实现 ESP32 端的本地能量分析，并打通从“私服 LLM”到“ESP32 表情”的精细反馈。
+
+#### Task F-2.1 (固件): 本地能量呼吸灯
+
+- **描述**：`AudioService` 在串流（M-1.1）的同时，也进行本地计算。
+- **行动**：
+  1. 修改 `audio_service.cc`，利用 `esp-sr` 的 VAD 状态计算一个滚动的“声学能量”指标（如语音密度）。
+  2. `Application` 定期获取此指标，并将其映射为颜色，调用 `display->SetEmotion` 来驱动 Display 氛围灯。
+
+#### Task S-2.1 (服务器): 集成 LLM 与情绪 Prompt
+
+- **描述**：将 STT 文本流（来自 S-1.2）输入到本地 LLM（例如 llama.cpp 的 Go/Rust 绑定）。
+- **行动**：编写 Prompt，使 LLM 能从输入文本中识别“高能量”情绪（如“愤怒”、“喜悦”），并决策一个“反馈”情绪（如“恐惧”）。
+
+#### Task S-2.2 (服务器): 实现“精细情绪”反馈
+
+- **描述**：将 LLM 的决策（JSON）发回给 ESP32。
+- **行动**：服务器向 ESP32 发送一个标准 xiaozhi 格式的 JSON 指令：`{"type": "llm", "emotion": "fear"}`。
+- **验证**：`Application::OnIncomingJson` 无需修改即可自动解析此指令，并调用 `display->SetEmotion("fear")`，使屏幕立即显示表情。
+
+### Milestone 3: 信任与日志（隐私闭环）
+
+**目标**：实现物理隐私开关，并开始进行有意义的长期日志记录。
+
+#### Task F-3.1 (固件): 物理隐私开关
+
+- **描述**：实现一个绝对可靠的“关闭”功能。
+- **行动**：
+  1. 在 `heart_mirror_board.h` (来自 M-0.1) 中定义一个 `PRIVACY_BUTTON_GPIO`。
+  2. 在 `Application::Start` 中为此 GPIO 注册一个中断。
+  3. 中断处理函数应立即调用（或通过 Schedule 调用）一个函数，该函数：
+      - 停止 AudioService（`EnableVoiceProcessing(false)`）。
+      - 关闭 Protocol 的音频通道。
+      - 调用 `display->SetEmotion("sleep")` 或显示“静音”图标。
+
+#### Task S-3.1 (服务器): 集成声纹识别
+
+- **描述**：在 STT（S-1.2）的同时，运行声纹识别，以便 LLM 知道“谁在说话”。
+- **行动**：集成 pyannote.audio（或同类库），将 STT 输出从 "..." 升级为 "[Speaker_A]: ..."。将此信息提供给 LLM（S-3.1）。
+
+#### Task S-3.2 (服务器): 事件日志数据库
+
+- **描述**：LLM 识别出的“强情绪事件”需要被持久化。
+- **行动**：
+  1. 在服务器端设置一个数据库（例如 PostgreSQL 或 SQLite）。
+  2. 当 LLM（S-3.1）识别到高能量情绪时，将 `{timestamp, speaker, emotion_label, transcript_snippet}` 写入数据库。
