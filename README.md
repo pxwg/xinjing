@@ -97,6 +97,15 @@ graph TD
   3. 修改 `WebsocketProtocol`（或您选择的协议）的构造函数，使其接受一个 `std::string server_url`。
   4. 使用加载的 URL 初始化 `protocol_`：`protocol_ = std::make_unique<WebsocketProtocol>(server_url);`。
 
+#### Task F-0.4 (固件): 加载私有配置
+
+- **描述**：修改 `Application::Start`，使其在连接网络后，从 NVS 加载并使用配置。
+- **行动**：
+  1. 在 `Start()` 中，网络连接成功后，使用 `Settings settings("heart-mirror", true);` 读取 `server_url`。
+  2. 如果 `server_url` 为空，应显示错误并强制重启进入配置门户。
+  3. 修改 `WebsocketProtocol`（或您选择的协议）的构造函数，使其接受一个 `std::string server_url`。
+  4. 使用加载的 URL 初始化 `protocol_`：`protocol_ = std::make_unique<WebsocketProtocol>(server_url);`。
+
 ### Milestone 1: 核心管道（持续串流与转录）
 
 **目标**：实现 ESP32 到私有服务器的 7x24 持续音频流，并在服务器端成功转录为文本。
