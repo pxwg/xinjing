@@ -226,6 +226,8 @@ void WifiConfigurationAp::StartWebServer()
     // 5G Network takes longer to connect
     config.recv_wait_timeout = 15;
     config.send_wait_timeout = 15;
+    // 增加栈大小，防止 EAP 认证时溢出
+    config.stack_size = 8192;
     ESP_ERROR_CHECK(httpd_start(&server_, &config));
 
     // Register the index.html file
@@ -408,6 +410,8 @@ void WifiConfigurationAp::StartWebServer()
             if (cJSON_IsString(username_item) && (username_item->valuestring != NULL) && (strlen(username_item->valuestring) < 65)) {
                 username_str = username_item->valuestring;
             }
+
+            ESP_LOGI(TAG, "Received submit: SSID='%s' User='%s'", ssid_str.c_str(), username_str.c_str());
 
             // 获取当前对象
             auto *this_ = static_cast<WifiConfigurationAp *>(req->user_ctx);
@@ -684,7 +688,7 @@ bool WifiConfigurationAp::ConnectToWifi(const std::string &ssid, const std::stri
         return false;
     }
     
-    if (ssid.length() > 32) {  // WiFi SSID 最大长度
+    if (ssid.length() > 32) {
         ESP_LOGE(TAG, "SSID too long");
         return false;
     }
@@ -695,10 +699,19 @@ bool WifiConfigurationAp::ConnectToWifi(const std::string &ssid, const std::stri
     }
     
     is_connecting_ = true;
+    
+    // 1. 停止扫描，防止干扰
     esp_wifi_scan_stop();
+    // 2. 清除之前的状态位
     xEventGroupClearBits(event_group_, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+    // 3. 断开任何现有的连接 (关键步骤，防止状态机卡死)
+    esp_wifi_disconnect();
+    // 4. 清理旧的 EAP 状态 (防止旧账号残留)
+    esp_eap_client_clear_identity();
+    esp_eap_client_clear_username();
+    esp_eap_client_clear_password();
 
-    // Configure Enterprise connection if username is provided
+    // 5. 配置 EAP (如果有用户名)
     if (!username.empty()) {
         ESP_LOGI(TAG, "Configuring WPA2 Enterprise for test connection to %s", ssid.c_str());
         ESP_ERROR_CHECK(esp_eap_client_set_identity((const uint8_t *)username.c_str(), username.length()));
@@ -706,45 +719,49 @@ bool WifiConfigurationAp::ConnectToWifi(const std::string &ssid, const std::stri
         ESP_ERROR_CHECK(esp_eap_client_set_password((const uint8_t *)password.c_str(), password.length()));
         ESP_ERROR_CHECK(esp_wifi_sta_enterprise_enable());
     } else {
+        // 普通网络必须禁用 Enterprise
         ESP_ERROR_CHECK(esp_wifi_sta_enterprise_disable());
     }
 
+    // 6. 设置 WiFi 配置
     wifi_config_t wifi_config;
     bzero(&wifi_config, sizeof(wifi_config));
     strlcpy((char *)wifi_config.sta.ssid, ssid.c_str(), 32);
     strlcpy((char *)wifi_config.sta.password, password.c_str(), 64);
     wifi_config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
-    wifi_config.sta.failure_retry_cnt = 1;
+    // 设为 0 表示一直重试直到超时，设为 1 可能在 AP 模式下太快放弃
+    wifi_config.sta.failure_retry_cnt = 3; 
     
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    
+    // 7. 开始连接
     auto ret = esp_wifi_connect();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to connect to WiFi: %d", ret);
         is_connecting_ = false;
         return false;
     }
-    ESP_LOGI(TAG, "Connecting to WiFi %s", ssid.c_str());
+    ESP_LOGI(TAG, "Connecting to WiFi %s...", ssid.c_str());
 
-    // Wait for the connection to complete for 10 or 25 seconds
+    // 8. 等待连接结果
+    // 增加超时时间到 20秒 (Enterprise 认证较慢)
     EventBits_t bits = xEventGroupWaitBits(
         event_group_,
         WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
         pdTRUE,
         pdFALSE,
-#ifdef CONFIG_SOC_WIFI_SUPPORT_5G
-        pdMS_TO_TICKS(25000)
-#else
-        pdMS_TO_TICKS(10000)
-#endif
+        pdMS_TO_TICKS(20000) 
     );
+    
     is_connecting_ = false;
 
     if (bits & WIFI_CONNECTED_BIT) {
         ESP_LOGI(TAG, "Connected to WiFi %s", ssid.c_str());
+        // 验证成功后断开，等待重启后正式连接
         esp_wifi_disconnect();
         return true;
     } else {
-        ESP_LOGE(TAG, "Failed to connect to WiFi %s", ssid.c_str());
+        ESP_LOGE(TAG, "Failed to connect to WiFi %s (Timeout or Auth Fail)", ssid.c_str());
         return false;
     }
 }
@@ -765,9 +782,16 @@ void WifiConfigurationAp::WifiEventHandler(void* arg, esp_event_base_t event_bas
         wifi_event_ap_stadisconnected_t* event = (wifi_event_ap_stadisconnected_t*) event_data;
         ESP_LOGI(TAG, "Station " MACSTR " left, AID=%d", MAC2STR(event->mac), event->aid);
     } else if (event_id == WIFI_EVENT_STA_CONNECTED) {
-        xEventGroupSetBits(self->event_group_, WIFI_CONNECTED_BIT);
+        // 连接到 AP 成功，但这不代表获取 IP 或 EAP 认证通过
+        // 我们等待 IP 事件或者 EAP 成功（通常 Got IP 意味着一切正常）
+        ESP_LOGI(TAG, "WiFi Station Connected (Layer 2)");
     } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        xEventGroupSetBits(self->event_group_, WIFI_FAIL_BIT);
+        wifi_event_sta_disconnected_t* event = (wifi_event_sta_disconnected_t*) event_data;
+        ESP_LOGW(TAG, "WiFi Station Disconnected. Reason: %d", event->reason);
+        // 如果正在尝试连接，设置失败位
+        if (self->is_connecting_) {
+            xEventGroupSetBits(self->event_group_, WIFI_FAIL_BIT);
+        }
     } else if (event_id == WIFI_EVENT_SCAN_DONE) {
         std::lock_guard<std::mutex> lock(self->mutex_);
         uint16_t ap_num = 0;
@@ -787,6 +811,7 @@ void WifiConfigurationAp::IpEventHandler(void* arg, esp_event_base_t event_base,
     if (event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
         ESP_LOGI(TAG, "Got IP:" IPSTR, IP2STR(&event->ip_info.ip));
+        // 获取到 IP 才算真正的连接成功 (EAP 认证也通过了)
         xEventGroupSetBits(self->event_group_, WIFI_CONNECTED_BIT);
     }
 }
