@@ -6,6 +6,7 @@
 #include <esp_err.h>
 #include <esp_event.h>
 #include <esp_wifi.h>
+#include <esp_eap_client.h> // 必须引入
 #include <esp_log.h>
 #include <esp_mac.h>
 #include <esp_netif.h>
@@ -15,6 +16,7 @@
 #include <cJSON.h>
 #include <esp_smartconfig.h>
 #include "ssid_manager.h"
+#include "sdkconfig.h"
 
 #define TAG "WifiConfigurationAp"
 
@@ -387,6 +389,7 @@ void WifiConfigurationAp::StartWebServer()
 
             cJSON *ssid_item = cJSON_GetObjectItemCaseSensitive(json, "ssid");
             cJSON *password_item = cJSON_GetObjectItemCaseSensitive(json, "password");
+            cJSON *username_item = cJSON_GetObjectItemCaseSensitive(json, "username"); // Parse username
 
             if (!cJSON_IsString(ssid_item) || (ssid_item->valuestring == NULL) || (strlen(ssid_item->valuestring) >= 33)) {
                 cJSON_Delete(json);
@@ -396,19 +399,25 @@ void WifiConfigurationAp::StartWebServer()
 
             std::string ssid_str = ssid_item->valuestring;
             std::string password_str = "";
+            std::string username_str = "";
+
             if (cJSON_IsString(password_item) && (password_item->valuestring != NULL) && (strlen(password_item->valuestring) < 65)) {
                 password_str = password_item->valuestring;
+            }
+            
+            if (cJSON_IsString(username_item) && (username_item->valuestring != NULL) && (strlen(username_item->valuestring) < 65)) {
+                username_str = username_item->valuestring;
             }
 
             // 获取当前对象
             auto *this_ = static_cast<WifiConfigurationAp *>(req->user_ctx);
-            if (!this_->ConnectToWifi(ssid_str, password_str)) {
+            if (!this_->ConnectToWifi(ssid_str, password_str, username_str)) {
                 cJSON_Delete(json);
                 httpd_resp_send(req, "{\"success\":false,\"error\":\"Failed to connect to the Access Point\"}", HTTPD_RESP_USE_STRLEN);
                 return ESP_OK;
             }
 
-            this_->Save(ssid_str, password_str);
+            this_->Save(ssid_str, password_str, username_str);
             cJSON_Delete(json);
             // 设置成功响应
             httpd_resp_set_type(req, "application/json");
@@ -668,7 +677,7 @@ void WifiConfigurationAp::StartWebServer()
     ESP_LOGI(TAG, "Web server started");
 }
 
-bool WifiConfigurationAp::ConnectToWifi(const std::string &ssid, const std::string &password)
+bool WifiConfigurationAp::ConnectToWifi(const std::string &ssid, const std::string &password, const std::string &username)
 {
     if (ssid.empty()) {
         ESP_LOGE(TAG, "SSID cannot be empty");
@@ -689,6 +698,17 @@ bool WifiConfigurationAp::ConnectToWifi(const std::string &ssid, const std::stri
     esp_wifi_scan_stop();
     xEventGroupClearBits(event_group_, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
 
+    // Configure Enterprise connection if username is provided
+    if (!username.empty()) {
+        ESP_LOGI(TAG, "Configuring WPA2 Enterprise for test connection to %s", ssid.c_str());
+        ESP_ERROR_CHECK(esp_eap_client_set_identity((const uint8_t *)username.c_str(), username.length()));
+        ESP_ERROR_CHECK(esp_eap_client_set_username((const uint8_t *)username.c_str(), username.length()));
+        ESP_ERROR_CHECK(esp_eap_client_set_password((const uint8_t *)password.c_str(), password.length()));
+        ESP_ERROR_CHECK(esp_wifi_sta_enterprise_enable());
+    } else {
+        ESP_ERROR_CHECK(esp_wifi_sta_enterprise_disable());
+    }
+
     wifi_config_t wifi_config;
     bzero(&wifi_config, sizeof(wifi_config));
     strlcpy((char *)wifi_config.sta.ssid, ssid.c_str(), 32);
@@ -705,8 +725,18 @@ bool WifiConfigurationAp::ConnectToWifi(const std::string &ssid, const std::stri
     }
     ESP_LOGI(TAG, "Connecting to WiFi %s", ssid.c_str());
 
-    // Wait for the connection to complete for 5 seconds
-    EventBits_t bits = xEventGroupWaitBits(event_group_, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT, pdTRUE, pdFALSE, pdMS_TO_TICKS(10000));
+    // Wait for the connection to complete for 10 or 25 seconds
+    EventBits_t bits = xEventGroupWaitBits(
+        event_group_,
+        WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+        pdTRUE,
+        pdFALSE,
+#ifdef CONFIG_SOC_WIFI_SUPPORT_5G
+        pdMS_TO_TICKS(25000)
+#else
+        pdMS_TO_TICKS(10000)
+#endif
+    );
     is_connecting_ = false;
 
     if (bits & WIFI_CONNECTED_BIT) {
@@ -719,10 +749,10 @@ bool WifiConfigurationAp::ConnectToWifi(const std::string &ssid, const std::stri
     }
 }
 
-void WifiConfigurationAp::Save(const std::string &ssid, const std::string &password)
+void WifiConfigurationAp::Save(const std::string &ssid, const std::string &password, const std::string &username)
 {
-    ESP_LOGI(TAG, "Save SSID %s %d", ssid.c_str(), ssid.length());
-    SsidManager::GetInstance().AddSsid(ssid, password);
+    ESP_LOGI(TAG, "Save SSID %s %d (User: %s)", ssid.c_str(), ssid.length(), username.c_str());
+    SsidManager::GetInstance().AddSsid(ssid, password, username);
 }
 
 void WifiConfigurationAp::WifiEventHandler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)

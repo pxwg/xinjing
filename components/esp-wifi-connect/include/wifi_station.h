@@ -13,6 +13,7 @@
 struct WifiApRecord {
     std::string ssid;
     std::string password;
+    std::string username; // 新增
     int channel;
     wifi_auth_mode_t authmode;
     uint8_t bssid[6];
@@ -21,7 +22,7 @@ struct WifiApRecord {
 class WifiStation {
 public:
     static WifiStation& GetInstance();
-    void AddAuth(const std::string &&ssid, const std::string &&password);
+    void AddAuth(const std::string &&ssid, const std::string &&password, const std::string &&username = "");
     void Start();
     void Stop();
     bool IsConnected();
@@ -49,6 +50,7 @@ private:
     esp_netif_t* station_netif_ = nullptr;
     std::string ssid_;
     std::string password_;
+    std::string username_; // 新增
     std::string ip_address_;
     int8_t max_tx_power_;
     uint8_t remember_bssid_;

@@ -7,6 +7,7 @@
 struct SsidItem {
     std::string ssid;
     std::string password;
+    std::string username; // 新增：用于 802.1x 认证
 };
 
 class SsidManager {
@@ -16,7 +17,7 @@ public:
         return instance;
     }
 
-    void AddSsid(const std::string& ssid, const std::string& password);
+    void AddSsid(const std::string& ssid, const std::string& password, const std::string& username = "");
     void RemoveSsid(int index);
     void SetDefaultSsid(int index);
     void Clear();

@@ -21,8 +21,9 @@ public:
     void Start();
     void Stop();
     void StartSmartConfig();
-    bool ConnectToWifi(const std::string &ssid, const std::string &password);
-    void Save(const std::string &ssid, const std::string &password);
+    // Updated to accept username
+    bool ConnectToWifi(const std::string &ssid, const std::string &password, const std::string &username = "");
+    void Save(const std::string &ssid, const std::string &password, const std::string &username = "");
     std::vector<wifi_ap_record_t> GetAccessPoints();
     std::string GetSsid();
     std::string GetWebServerUrl();

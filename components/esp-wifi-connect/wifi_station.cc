@@ -6,6 +6,7 @@
 #include <freertos/event_groups.h>
 #include <esp_log.h>
 #include <esp_wifi.h>
+#include <esp_eap_client.h> // 必须引入此头文件以支持 IDF 5.x 的 EAP 功能
 #include <nvs.h>
 #include "nvs_flash.h"
 #include <esp_netif.h>
@@ -46,9 +47,9 @@ WifiStation::~WifiStation() {
     vEventGroupDelete(event_group_);
 }
 
-void WifiStation::AddAuth(const std::string &&ssid, const std::string &&password) {
+void WifiStation::AddAuth(const std::string &&ssid, const std::string &&password, const std::string &&username) {
     auto& ssid_manager = SsidManager::GetInstance();
-    ssid_manager.AddSsid(ssid, password);
+    ssid_manager.AddSsid(ssid, password, username);
 }
 
 void WifiStation::Stop() {
@@ -73,6 +74,9 @@ void WifiStation::Stop() {
     // Reset the WiFi stack
     ESP_ERROR_CHECK(esp_wifi_stop());
     ESP_ERROR_CHECK(esp_wifi_deinit());
+    
+    // 确保禁用 Enterprise 模式
+    esp_wifi_sta_enterprise_disable();
 
     if (station_netif_ != nullptr) {
         esp_netif_destroy(station_netif_);
@@ -168,6 +172,7 @@ void WifiStation::HandleScanResult() {
             WifiApRecord record = {
                 .ssid = it->ssid,
                 .password = it->password,
+                .username = it->username, // Copy username
                 .channel = ap_record.primary,
                 .authmode = ap_record.authmode
             };
@@ -191,9 +196,27 @@ void WifiStation::StartConnect() {
     connect_queue_.erase(connect_queue_.begin());
     ssid_ = ap_record.ssid;
     password_ = ap_record.password;
+    username_ = ap_record.username;
 
     if (on_connect_) {
         on_connect_(ssid_);
+    }
+
+    // Configure WPA2 Enterprise if username is present
+    if (!username_.empty()) {
+        ESP_LOGI(TAG, "Configuring WPA2 Enterprise for %s (User: %s)", ssid_.c_str(), username_.c_str());
+        
+        ESP_ERROR_CHECK(esp_eap_client_set_identity((const uint8_t *)username_.c_str(), username_.length()));
+        ESP_ERROR_CHECK(esp_eap_client_set_username((const uint8_t *)username_.c_str(), username_.length()));
+        ESP_ERROR_CHECK(esp_eap_client_set_password((const uint8_t *)password_.c_str(), password_.length()));
+        
+        // 通常 PEAP 不需要设置 CA 证书即可连接（不验证服务器），或者需要在此处添加 CA 证书设置
+        // esp_eap_client_set_ca_cert(...);
+        
+        ESP_ERROR_CHECK(esp_wifi_sta_enterprise_enable());
+    } else {
+        // Disable Enterprise for normal networks
+        ESP_ERROR_CHECK(esp_wifi_sta_enterprise_disable());
     }
 
     wifi_config_t wifi_config;
