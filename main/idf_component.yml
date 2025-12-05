@@ -14,6 +14,7 @@ dependencies:
   espressif/esp_lcd_panel_io_additions: ^1.0.1
   78/esp_lcd_nv3023: ~1.0.0
   # 78/esp-wifi-connect: ~2.6.1
+  78/esp-opus-encoder: ~2.4.1
   # pxwg/esp-wifi-connect:
   #   path: ../../components/esp-wifi-connect
   78/esp-ml307: ~3.3.7
