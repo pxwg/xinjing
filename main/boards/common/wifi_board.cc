@@ -12,9 +12,9 @@
 #include <esp_log.h>
 
 #include <font_awesome.h>
-#include <wifi_station.h>
-#include <wifi_configuration_ap.h>
-#include <ssid_manager.h>
+#include "../../../components/esp-wifi-connect/wifi_station.cc"
+#include "../../../components/esp-wifi-connect/wifi_configuration_ap.cc"
+#include "../../../components/esp-wifi-connect/ssid_manager.cc"
 #include "afsk_demod.h"
 
 static const char *TAG = "WifiBoard";
