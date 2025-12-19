@@ -33,7 +33,7 @@ namespace audio_wifi_config
                 continue;
             }
             
-            if (!app->GetAudioService().ReadAudioData(audio_data, 16000, 480)) { // 16kHz, 480 samples corresponds to 30ms data
+            if (! app->GetAudioService().ReadAudioData(audio_data, 16000, 480)) { // 16kHz, 480 samples corresponds to 30ms data
                 // 读取音频失败，短暂延迟后重试
                 ESP_LOGI(kLogTag, "Failed to read audio data, retrying.");
                 vTaskDelay(pdMS_TO_TICKS(10));
@@ -41,7 +41,7 @@ namespace audio_wifi_config
             }
 
             if (input_channels == 2) { // 如果是双声道输入，转换为单声道
-                auto mono_data = std::vector<int16_t>(audio_data.size() / 2);
+                auto mono_data = std::vector<int16_t>(audio_data. size() / 2);
                 for (size_t i = 0, j = 0; i < mono_data.size(); ++i, j += 2) {
                     mono_data[i] = audio_data[j];
                 }
@@ -53,7 +53,7 @@ namespace audio_wifi_config
             size_t last_index = 0;
 
             if (kDownsampleStep > 1.0f) {
-                downsampled_data.reserve(audio_data.size() / static_cast<size_t>(kDownsampleStep));
+                downsampled_data. reserve(audio_data. size() / static_cast<size_t>(kDownsampleStep));
                 for (size_t i = 0; i < audio_data.size(); ++i) {
                     size_t sample_index = static_cast<size_t>(i / kDownsampleStep);
                     if ((sample_index + 1) > last_index) {
@@ -62,7 +62,7 @@ namespace audio_wifi_config
                     }
                 }
             } else {
-                downsampled_data.reserve(audio_data.size());
+                downsampled_data. reserve(audio_data.size());
                 for (int16_t sample : audio_data) {
                     downsampled_data.push_back(static_cast<float>(sample));
                 }
@@ -74,24 +74,37 @@ namespace audio_wifi_config
             // Feed probability data to the data buffer
             if (data_buffer.ProcessProbabilityData(probabilities, 0.5f)) {
                 // If complete data was received, extract WiFi credentials
-                if (data_buffer.decoded_text.has_value()) {
+                if (data_buffer. decoded_text.has_value()) {
                     ESP_LOGI(kLogTag, "Received text data: %s", data_buffer.decoded_text->c_str());
-                    display->SetChatMessage("system", data_buffer.decoded_text->c_str());
+                    display->SetChatMessage("system", data_buffer. decoded_text->c_str());
                     
-                    // Split SSID and password by newline character
-                    std::string wifi_ssid, wifi_password;
-                    size_t newline_position = data_buffer.decoded_text->find('\n');
-                    if (newline_position != std::string::npos) {
-                        wifi_ssid = data_buffer.decoded_text->substr(0, newline_position);
-                        wifi_password = data_buffer.decoded_text->substr(newline_position + 1);
-                        ESP_LOGI(kLogTag, "WiFi SSID: %s, Password: %s", wifi_ssid.c_str(), wifi_password.c_str());
+                    // Split SSID, password and username by newline character
+                    // Format: SSID\nPASSWORD[\nUSERNAME] (username is optional for WPA2-Enterprise)
+                    std::string wifi_ssid, wifi_password, wifi_username;
+                    size_t first_newline = data_buffer.decoded_text->find('\n');
+                    if (first_newline != std::string:: npos) {
+                        wifi_ssid = data_buffer.decoded_text->substr(0, first_newline);
+                        std::string remaining = data_buffer. decoded_text->substr(first_newline + 1);
+                        
+                        // Check if there's a second newline for username (WPA2-Enterprise)
+                        size_t second_newline = remaining.find('\n');
+                        if (second_newline != std:: string::npos) {
+                            wifi_password = remaining.substr(0, second_newline);
+                            wifi_username = remaining.substr(second_newline + 1);
+                            ESP_LOGI(kLogTag, "WiFi SSID: %s, Password: %s, Username: %s (WPA2-Enterprise)", 
+                                     wifi_ssid. c_str(), wifi_password.c_str(), wifi_username.c_str());
+                        } else {
+                            wifi_password = remaining;
+                            ESP_LOGI(kLogTag, "WiFi SSID: %s, Password: %s", wifi_ssid. c_str(), wifi_password.c_str());
+                        }
                     } else {
                         ESP_LOGE(kLogTag, "Invalid data format, no newline character found");
                         continue;
                     }
                     
-                    if (wifi_ap->ConnectToWifi(wifi_ssid, wifi_password)) {
-                        wifi_ap->Save(wifi_ssid, wifi_password);  // Save WiFi credentials
+                    // ConnectToWifi and Save now support WPA2-Enterprise with username parameter
+                    if (wifi_ap->ConnectToWifi(wifi_ssid, wifi_password, wifi_username)) {
+                        wifi_ap->Save(wifi_ssid, wifi_password, wifi_username);  // Save WiFi credentials
                         esp_restart();                            // Restart device to apply new WiFi configuration
                     } else {
                         ESP_LOGE(kLogTag, "Failed to connect to WiFi with received credentials");
@@ -113,12 +126,12 @@ namespace audio_wifi_config
         0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0};
 
     // FrequencyDetector implementation
-    FrequencyDetector::FrequencyDetector(float frequency, size_t window_size)
+    FrequencyDetector:: FrequencyDetector(float frequency, size_t window_size)
         : frequency_(frequency), window_size_(window_size) {
         frequency_bin_ = std::floor(frequency_ * static_cast<float>(window_size_));
         angular_frequency_ = 2.0f * M_PI * frequency_;
         cos_coefficient_ = std::cos(angular_frequency_);
-        sin_coefficient_ = std::sin(angular_frequency_);
+        sin_coefficient_ = std:: sin(angular_frequency_);
         filter_coefficient_ = 2.0f * cos_coefficient_;
 
         // Initialize state buffer
@@ -133,14 +146,14 @@ namespace audio_wifi_config
     }
 
     void FrequencyDetector::ProcessSample(float sample) {
-        if (state_buffer_.size() < 2) {
+        if (state_buffer_. size() < 2) {
             return;
         }
 
-        float s_minus_2 = state_buffer_.front();  // S[-2]
+        float s_minus_2 = state_buffer_. front();  // S[-2]
         state_buffer_.pop_front();
         float s_minus_1 = state_buffer_.front();  // S[-1]
-        state_buffer_.pop_front();
+        state_buffer_. pop_front();
 
         float s_current = sample + filter_coefficient_ * s_minus_1 - s_minus_2;
 
@@ -158,7 +171,7 @@ namespace audio_wifi_config
         float real_part = cos_coefficient_ * s_minus_1 - s_minus_2;  // Real part
         float imaginary_part = sin_coefficient_ * s_minus_1;         // Imaginary part
 
-        return std::sqrt(real_part * real_part + imaginary_part * imaginary_part) / 
+        return std:: sqrt(real_part * real_part + imaginary_part * imaginary_part) / 
                (static_cast<float>(window_size_) / 2.0f);
     }
 
@@ -180,11 +193,11 @@ namespace audio_wifi_config
         samples_per_bit_ = sample_rate / bit_rate;  // Number of samples per bit
     }
 
-    std::vector<float> AudioSignalProcessor::ProcessAudioSamples(const std::vector<float> &samples) {
+    std::vector<float> AudioSignalProcessor:: ProcessAudioSamples(const std:: vector<float> &samples) {
         std::vector<float> result;
 
         for (float sample : samples) {
-            if (input_buffer_.size() < input_buffer_size_) {
+            if (input_buffer_. size() < input_buffer_size_) {
                 input_buffer_.push_back(sample);  // Just add, don't process yet
             } else {
                 // Input buffer is full, process the data
@@ -224,19 +237,19 @@ namespace audio_wifi_config
           start_of_transmission_(kDefaultStartTransmissionPattern),
           end_of_transmission_(kDefaultEndTransmissionPattern),
           enable_checksum_validation_(true) {
-        identifier_buffer_size_ = std::max(start_of_transmission_.size(), end_of_transmission_.size());
+        identifier_buffer_size_ = std::max(start_of_transmission_. size(), end_of_transmission_.size());
         max_bit_buffer_size_ = 776;  // Preset bit buffer size, 776 bits = (32 + 1 + 63 + 1) * 8 = 776
 
         bit_buffer_.reserve(max_bit_buffer_size_);
     }
 
-    AudioDataBuffer::AudioDataBuffer(size_t max_byte_size, const std::vector<uint8_t> &start_identifier,
+    AudioDataBuffer::AudioDataBuffer(size_t max_byte_size, const std:: vector<uint8_t> &start_identifier,
                                    const std::vector<uint8_t> &end_identifier, bool enable_checksum)
         : current_state_(DataReceptionState::kInactive),
           start_of_transmission_(start_identifier),
           end_of_transmission_(end_identifier),
           enable_checksum_validation_(enable_checksum) {
-        identifier_buffer_size_ = std::max(start_of_transmission_.size(), end_of_transmission_.size());
+        identifier_buffer_size_ = std::max(start_of_transmission_. size(), end_of_transmission_.size());
         max_bit_buffer_size_ = max_byte_size * 8;  // Bit buffer size in bytes
 
         bit_buffer_.reserve(max_bit_buffer_size_);
@@ -250,7 +263,7 @@ namespace audio_wifi_config
         return checksum;
     }
 
-    void AudioDataBuffer::ClearBuffers() {
+    void AudioDataBuffer:: ClearBuffers() {
         identifier_buffer_.clear();
         bit_buffer_.clear();
     }
@@ -262,11 +275,11 @@ namespace audio_wifi_config
             if (identifier_buffer_.size() >= identifier_buffer_size_) {
                 identifier_buffer_.pop_front();  // Maintain buffer size
             }
-            identifier_buffer_.push_back(bit);
+            identifier_buffer_. push_back(bit);
 
             // Process received bit based on state machine
             switch (current_state_) {
-            case DataReceptionState::kInactive:
+            case DataReceptionState::kInactive: 
                 if (identifier_buffer_.size() >= start_of_transmission_.size()) {
                     current_state_ = DataReceptionState::kWaiting;  // Enter waiting state
                     ESP_LOGI(kLogTag, "Entering Waiting state");
@@ -275,8 +288,8 @@ namespace audio_wifi_config
 
             case DataReceptionState::kWaiting:
                 // Waiting state, possibly waiting for transmission end
-                if (identifier_buffer_.size() >= start_of_transmission_.size()) {
-                    std::vector<uint8_t> identifier_snapshot(identifier_buffer_.begin(), identifier_buffer_.end());
+                if (identifier_buffer_.size() >= start_of_transmission_. size()) {
+                    std::vector<uint8_t> identifier_snapshot(identifier_buffer_.begin(), identifier_buffer_. end());
                     if (identifier_snapshot == start_of_transmission_)
                     {
                         ClearBuffers();                                // Clear buffers
@@ -286,7 +299,7 @@ namespace audio_wifi_config
                 }
                 break;
 
-            case DataReceptionState::kReceiving:
+            case DataReceptionState::kReceiving: 
                 bit_buffer_.push_back(bit);
                 if (identifier_buffer_.size() >= end_of_transmission_.size()) {
                     std::vector<uint8_t> identifier_snapshot(identifier_buffer_.begin(), identifier_buffer_.end());
@@ -301,13 +314,13 @@ namespace audio_wifi_config
 
                         if (enable_checksum_validation_) {
                             // If checksum is required, last byte is checksum
-                            minimum_length = 1 + start_of_transmission_.size() / 8;
+                            minimum_length = 1 + start_of_transmission_. size() / 8;
                             if (bytes.size() >= minimum_length)
                             {
-                                received_checksum = bytes[bytes.size() - start_of_transmission_.size() / 8 - 1];
+                                received_checksum = bytes[bytes.size() - start_of_transmission_. size() / 8 - 1];
                             }
                         } else {
-                            minimum_length = start_of_transmission_.size() / 8;
+                            minimum_length = start_of_transmission_. size() / 8;
                         }
 
                         if (bytes.size() < minimum_length) {
@@ -327,7 +340,7 @@ namespace audio_wifi_config
                             uint8_t calculated_checksum = CalculateChecksum(result);
                             if (calculated_checksum != received_checksum) {
                                 // Checksum mismatch
-                                ESP_LOGW(kLogTag, "Checksum mismatch: expected %d, got %d", 
+                                ESP_LOGW(kLogTag, "Checksum mismatch:  expected %d, got %d", 
                                         received_checksum, calculated_checksum);
                                 ClearBuffers();
                                 return false;
