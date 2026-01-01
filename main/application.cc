@@ -200,8 +200,8 @@ void Application::ShowActivationCode(const std::string& code, const std::string&
         auto it = std::find_if(digit_sounds.begin(), digit_sounds.end(),
             [digit](const digit_sound& ds) { return ds.digit == digit; });
         if (it != digit_sounds.end()) {
-            audio_service_.PlaySound(it->sound);
-        }
+            // audio_service_.PlaySound(it->sound);
+    }
     }
 }
 
@@ -212,7 +212,9 @@ void Application::Alert(const char* status, const char* message, const char* emo
     display->SetEmotion(emotion);
     display->SetChatMessage("system", message);
     if (!sound.empty()) {
-        audio_service_.PlaySound(sound);
+    // if (!sound.empty()) {
+    //     audio_service_.PlaySound(sound);
+    // }
     }
 }
 
@@ -432,7 +434,7 @@ void Application::Start() {
                 Schedule([this, display, text_str]() {
                     display->SetChatMessage("assistant", text_str.c_str());
                     if (text_str == "Connected & Ready") {
-                        audio_service_.PlaySound(Lang::Sounds::OGG_SUCCESS);
+                        // audio_service_.PlaySound(Lang::Sounds::OGG_SUCCESS);
                     }
                 });
             }
@@ -741,5 +743,5 @@ void Application::SetAecMode(AecMode mode) {
 }
 
 void Application::PlaySound(const std::string_view& sound) {
-    audio_service_.PlaySound(sound);
+    // audio_service_.PlaySound(sound);
 }

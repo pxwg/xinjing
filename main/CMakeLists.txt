@@ -161,7 +161,7 @@ elseif(CONFIG_BOARD_TYPE_ATK_DNESP32S3_BOX0)
 elseif(CONFIG_BOARD_TYPE_ATK_DNESP32S3_BOX2_WIFI)
     set(BOARD_TYPE "atk-dnesp32s3-box2-wifi")
 elseif(CONFIG_BOARD_TYPE_ATK_DNESP32S3_BOX2_4G)
-    set(BOARD_TYPE "atk-dnesp32s3-box2-4g")   
+    set(BOARD_TYPE "atk-dnesp32s3-box2-4g")    
 elseif(CONFIG_BOARD_TYPE_ATK_DNESP32S3M_WIFI)
     set(BOARD_TYPE "atk-dnesp32s3m-wifi")
 elseif(CONFIG_BOARD_TYPE_ATK_DNESP32S3M_4G)
@@ -305,7 +305,7 @@ if(CONFIG_IDF_TARGET_ESP32)
 endif()
 
 idf_component_register(SRCS ${SOURCES}
-                    EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS}
+                    EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS} "assets/gifs/neutral.gif"
                     INCLUDE_DIRS ${INCLUDE_DIRS}
                     WHOLE_ARCHIVE
                     )

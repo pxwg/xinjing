@@ -14,8 +14,10 @@
 #include "board.h"
 
 #define TAG "LcdDisplay"
+#define TAG "LcdDisplay"
 
-// Color definitions for dark theme
+extern const uint8_t neutral_gif_start[] asm("_binary_neutral_gif_start");
+extern const uint8_t neutral_gif_end[]   asm("_binary_neutral_gif_end");
 #define DARK_BACKGROUND_COLOR       lv_color_hex(0x121212)     // Dark background
 #define DARK_TEXT_COLOR             lv_color_white()           // White text
 #define DARK_CHAT_BACKGROUND_COLOR  lv_color_hex(0x1E1E1E)     // Slightly lighter than background
@@ -825,6 +827,7 @@ void LcdDisplay::SetupUI() {
     lv_obj_set_style_text_color(low_battery_label_, lv_color_white(), 0);
     lv_obj_center(low_battery_label_);
     lv_obj_add_flag(low_battery_popup_, LV_OBJ_FLAG_HIDDEN);
+    SetEmotion("neutral");
 }
 
 void LcdDisplay::SetPreviewImage(const lv_img_dsc_t* img_dsc) {
@@ -856,6 +859,63 @@ void LcdDisplay::SetPreviewImage(const lv_img_dsc_t* img_dsc) {
 #endif
 
 void LcdDisplay::SetEmotion(const char* emotion) {
+    // 增加调试日志，看看到底收到了什么
+    ESP_LOGI(TAG, "SetEmotion: %s", emotion);
+
+    bool is_neutral = (strcmp(emotion, "neutral") == 0 ||
+                       strcmp(emotion, "natural") == 0 ||
+                       strcmp(emotion, "natrual") == 0);
+
+    {
+        DisplayLockGuard lock(this);
+
+        if (is_neutral) {
+            if (gif_obj_ == nullptr) {
+                // ... 隐藏其他控件的代码 ...
+                if (emotion_label_) lv_obj_add_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
+#if !CONFIG_USE_WECHAT_MESSAGE_STYLE
+                if (preview_image_) lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
+#endif
+
+                // 创建对象
+                lv_obj_t* parent = lv_layer_top();
+                ESP_LOGI(TAG, "Free PSRAM before GIF: %d", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+                gif_obj_ = lv_gif_create(parent);
+                ESP_LOGI(TAG, "Free PSRAM after GIF object: %d", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+        
+                if (gif_obj_ == nullptr) {
+                    ESP_LOGE(TAG, "Failed to create GIF object! Is LV_USE_GIF enabled?");
+                    // 回退显示文本，避免白屏
+                    if (emotion_label_) {
+                        lv_obj_remove_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
+                        lv_label_set_text(emotion_label_, "GIF Error");
+                    }
+                    return;
+                }
+
+                lv_gif_set_src(gif_obj_, neutral_gif_start);
+                // 移除所有边框和背景
+                lv_obj_set_style_bg_opa(gif_obj_, LV_OPA_TRANSP, 0);
+                lv_obj_set_style_border_width(gif_obj_, 0, 0);
+                // 居中
+                lv_obj_align(gif_obj_, LV_ALIGN_CENTER, 0, 0);
+                // 移到最前
+                lv_obj_move_foreground(gif_obj_);
+
+                ESP_LOGI(TAG, "GIF created and playing successfully");
+            }
+            return;
+        } else {
+            // ... 销毁 GIF 的代码 ...
+            if (gif_obj_ != nullptr) {
+                lv_obj_del(gif_obj_);
+                gif_obj_ = nullptr;
+                ESP_LOGI(TAG, "GIF stopped");
+            }
+            // 记得恢复 emotion_label_ 显示
+            if (emotion_label_) lv_obj_remove_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
     struct Emotion {
         const char* icon;
         const char* text;
@@ -884,11 +944,13 @@ void LcdDisplay::SetEmotion(const char* emotion) {
         {"😜", "silly"},
         {"🙄", "confused"}
     };
-    
+
     // 查找匹配的表情
     std::string_view emotion_view(emotion);
     auto it = std::find_if(emotions.begin(), emotions.end(),
         [&emotion_view](const Emotion& e) { return e.text == emotion_view; });
+
+    // 尝试从 FontAwesome 获取图标
     if (fonts_.emoji_font == nullptr || it == emotions.end()) {
         const char* utf8 = font_awesome_get_utf8(emotion);
         if (utf8 != nullptr) {
@@ -902,7 +964,7 @@ void LcdDisplay::SetEmotion(const char* emotion) {
         return;
     }
 
-    // 如果找到匹配的表情就显示对应图标，否则显示默认的neutral表情
+    // 设置字体和文本
     lv_obj_set_style_text_font(emotion_label_, fonts_.emoji_font, 0);
     if (it != emotions.end()) {
         lv_label_set_text(emotion_label_, it->icon);
@@ -911,7 +973,7 @@ void LcdDisplay::SetEmotion(const char* emotion) {
     }
 
 #if !CONFIG_USE_WECHAT_MESSAGE_STYLE
-    // 显示emotion_label_，隐藏preview_image_
+    // 确保 Emotion Label 可见，预览图隐藏
     lv_obj_remove_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
     if (preview_image_ != nullptr) {
         lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
