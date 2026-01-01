@@ -21,7 +21,6 @@ WebsocketProtocol::~WebsocketProtocol() {
 }
 
 bool WebsocketProtocol::Start() {
-    // Only connect to server when audio channel is needed
     return true;
 }
 
@@ -30,7 +29,10 @@ bool WebsocketProtocol::SendAudio(std::unique_ptr<AudioStreamPacket> packet) {
         return false;
     }
 
-    if (version_ == 2) {
+    // Version 1: 直接发送原始 Opus Payload，符合 xinjing_web 服务器要求
+    if (version_ == 1) {
+        return websocket_->Send(packet->payload.data(), packet->payload.size(), true);
+    } else if (version_ == 2) {
         std::string serialized;
         serialized.resize(sizeof(BinaryProtocol2) + packet->payload.size());
         auto bp2 = (BinaryProtocol2*)serialized.data();
@@ -61,13 +63,11 @@ bool WebsocketProtocol::SendText(const std::string& text) {
     if (websocket_ == nullptr || !websocket_->IsConnected()) {
         return false;
     }
-
     if (!websocket_->Send(text)) {
         ESP_LOGE(TAG, "Failed to send text: %s", text.c_str());
         SetError(Lang::Strings::SERVER_ERROR);
         return false;
     }
-
     return true;
 }
 
@@ -80,10 +80,15 @@ void WebsocketProtocol::CloseAudioChannel() {
 }
 
 bool WebsocketProtocol::OpenAudioChannel() {
-    Settings settings("websocket", false);
-    std::string url = settings.GetString("url");
-    std::string token = settings.GetString("token");
-    int version = settings.GetInt("version");
+    // ================= 修改点 1: 写死服务器配置 =================
+    // 保留原有写死的公网IP
+    std::string url = "ws://59.66.34.117:4321/ws"; 
+    std::string token = ""; 
+    
+    // 必须使用 Version 1 (Raw Opus)，因为 xinjing_web 服务器直接解码 Opus 数据
+    int version = 1; 
+    // ========================================================
+
     if (version != 0) {
         version_ = version;
     }
@@ -98,12 +103,12 @@ bool WebsocketProtocol::OpenAudioChannel() {
     }
 
     if (!token.empty()) {
-        // If token not has a space, add "Bearer " prefix
         if (token.find(" ") == std::string::npos) {
             token = "Bearer " + token;
         }
         websocket_->SetHeader("Authorization", token.c_str());
     }
+    
     websocket_->SetHeader("Protocol-Version", std::to_string(version_).c_str());
     websocket_->SetHeader("Device-Id", SystemInfo::GetMacAddress().c_str());
     websocket_->SetHeader("Client-Id", Board::GetInstance().GetUuid().c_str());
@@ -147,11 +152,18 @@ bool WebsocketProtocol::OpenAudioChannel() {
         } else {
             // Parse JSON data
             auto root = cJSON_Parse(data);
+            if (root == nullptr) {
+                ESP_LOGE(TAG, "Failed to parse JSON: %s", data);
+                return;
+            }
+            
             auto type = cJSON_GetObjectItem(root, "type");
             if (cJSON_IsString(type)) {
                 if (strcmp(type->valuestring, "hello") == 0) {
                     ParseServerHello(root);
                 } else {
+                    // xinjing_web 服务器直接发送 {"type": "llm", ...} 等消息
+                    // 透传给 Application 处理
                     if (on_incoming_json_ != nullptr) {
                         on_incoming_json_(root);
                     }
@@ -178,19 +190,14 @@ bool WebsocketProtocol::OpenAudioChannel() {
         return false;
     }
 
-    // Send hello message to describe the client
+    // Send hello message
     auto message = GetHelloMessage();
     if (!SendText(message)) {
         return false;
     }
 
-    // Wait for server hello
-    EventBits_t bits = xEventGroupWaitBits(event_group_handle_, WEBSOCKET_PROTOCOL_SERVER_HELLO_EVENT, pdTRUE, pdFALSE, pdMS_TO_TICKS(10000));
-    if (!(bits & WEBSOCKET_PROTOCOL_SERVER_HELLO_EVENT)) {
-        ESP_LOGE(TAG, "Failed to receive server hello");
-        SetError(Lang::Strings::SERVER_TIMEOUT);
-        return false;
-    }
+    // xinjing_web 服务器不发送标准 hello 响应，直接触发连接成功事件
+    xEventGroupSetBits(event_group_handle_, WEBSOCKET_PROTOCOL_SERVER_HELLO_EVENT);
 
     if (on_audio_channel_opened_ != nullptr) {
         on_audio_channel_opened_();
@@ -200,10 +207,16 @@ bool WebsocketProtocol::OpenAudioChannel() {
 }
 
 std::string WebsocketProtocol::GetHelloMessage() {
-    // keys: message type, version, audio_params (format, sample_rate, channels)
     cJSON* root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "type", "hello");
-    cJSON_AddNumberToObject(root, "version", version_);
+    
+    // ================= 修改点 2: Version 转为 String =================
+    // xinjing_web 的 protocol.rs 定义 DeviceMessage::Hello { version: String }
+    // 如果发送数字，serde 解析会失败
+    std::string version_str = std::to_string(version_);
+    cJSON_AddStringToObject(root, "version", version_str.c_str());
+    // ===============================================================
+
     cJSON* features = cJSON_CreateObject();
 #if CONFIG_USE_SERVER_AEC
     cJSON_AddBoolToObject(features, "aec", true);
