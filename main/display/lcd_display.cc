@@ -150,7 +150,7 @@ static bool UpdateAnimationResources(const char* emotion) {
         return true;
     } 
     // --- Sad 池 ---
-    else if (strcmp(emotion, "sad") == 0 || strcmp(emotion, "grief") == 0) {
+    else if (strcmp(emotion, "sad") == 0 || strcmp(emotion, "grief") == 0 || strcmp(emotion, "circle_xmark") == 0) {
         if (r < 60) { current_anim_start = &sad_start; current_anim_end = &sad_end; }
         else if (r < 85) { current_anim_start = &crying_start; current_anim_end = &crying_end; }
         else { current_anim_start = &angry_start; current_anim_end = &angry_end; }
