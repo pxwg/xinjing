@@ -416,8 +416,9 @@ void Application::Start() {
         if (strcmp(type->valuestring, "llm") == 0) {
             // 1. 处理情绪
             auto emotion = cJSON_GetObjectItem(root, "emotion");
+            ESP_LOGI(TAG, "Received Emotion:%s", cJSON_IsString(emotion) ? emotion->valuestring : "null");
             if (cJSON_IsString(emotion)) {
-                Schedule([this, display, emotion_str = std::string(emotion->valuestring)]() {
+                Schedule([display, emotion_str = std::string(emotion->valuestring)]() {
                     display->SetEmotion(emotion_str.c_str());
                 });
             }

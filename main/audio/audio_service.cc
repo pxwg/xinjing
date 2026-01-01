@@ -1,6 +1,8 @@
 #include "audio_service.h"
 #include <esp_log.h>
 #include <cstring>
+#include <cmath>
+#include <algorithm> // 用于 std::clamp
 
 #if CONFIG_USE_AUDIO_PROCESSOR
 #include "processors/afe_audio_processor.h"
@@ -18,6 +20,11 @@
 
 #define TAG "AudioService"
 
+// ================= 配置区域 =================
+// 软件数字增益倍数，如果觉得声音小可以调大，例如 2.0, 4.0
+// Python 脚本没有增益，但 ESP32 麦克风可能较小
+static const float K_SOFTWARE_GAIN = 4.0f; 
+// ==========================================
 
 AudioService::AudioService() {
     event_group_ = xEventGroupCreate();
@@ -60,6 +67,8 @@ void AudioService::Initialize(AudioCodec* codec) {
     wake_word_ = nullptr;
 #endif
 
+    // 注意：这里的回调在下面的 AudioInputTask 修改后，可能不会被触发（因为我们绕过了 audio_processor_->Feed）
+    // 但为了保持代码兼容性，我们保留它
     audio_processor_->OnOutput([this](std::vector<int16_t>&& data) {
         PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue, std::move(data));
     });
@@ -256,17 +265,49 @@ void AudioService::AudioInputTask() {
             }
         }
 
-        /* Feed the audio processor */
+        // ================= 修改开始 =================
+        // 原逻辑：读取 -> Feed Processor -> Processor Callback -> Encode Queue
+        // 新逻辑：读取 -> 增益放大 -> Encode Queue (直通，类似 Python 脚本)
+        /* Feed the audio processor / Direct Upload */
         if (bits & AS_EVENT_AUDIO_PROCESSOR_RUNNING) {
             std::vector<int16_t> data;
-            int samples = audio_processor_->GetFeedSize();
-            if (samples > 0) {
-                if (ReadAudioData(data, 16000, samples)) {
-                    audio_processor_->Feed(std::move(data));
-                    continue;
+            // 强制读取 60ms 的数据 (16000Hz * 0.06s = 960 samples)
+            // 这里的 OPUS_FRAME_DURATION_MS 在 audio_service.h 中定义为 60
+            int samples = OPUS_FRAME_DURATION_MS * 16000 / 1000;
+            
+            if (ReadAudioData(data, 16000, samples)) {
+                // 如果是双声道，取左声道 (ReadAudioData 内部可能已经处理了重采样，但通道混合可能要自己做)
+                // 上面的 ReadAudioData 实现看似在重采样时会保留双通道，如果 codec_->input_channels() == 2
+                if (codec_->input_channels() == 2 && data.size() == samples * 2) {
+                     auto mono_data = std::vector<int16_t>(samples);
+                     for (int i = 0; i < samples; ++i) {
+                         mono_data[i] = data[i * 2]; // 只取左声道
+                     }
+                     data = std::move(mono_data);
                 }
+
+                // --- 软件增益 ---
+                if (K_SOFTWARE_GAIN != 1.0f) {
+                    for (auto& sample : data) {
+                        int32_t val = static_cast<int32_t>(sample * K_SOFTWARE_GAIN);
+                        // 削波防止溢出
+                        sample = static_cast<int16_t>(std::clamp(val, int32_t(-32768), int32_t(32767)));
+                    }
+                }
+                // ---------------
+
+                // 旁路 AFE 处理，直接发送到编码队列
+                // 这样可以确保不断流，且不受 VAD 影响
+                PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue, std::move(data));
+                
+                // 注意：由于我们跳过了 audio_processor_->Feed(data)，
+                // 设备端的 AEC（回声消除）将失效。
+                // 如果需要 AEC，必须使用 audio_processor_，但需要调整其配置以防止静音抑制。
+                // 鉴于您的需求是“像 Python 脚本一样”，直通是最可靠的方式。
+                continue;
             }
         }
+        // ================= 修改结束 =================
 
         ESP_LOGE(TAG, "Should not be here, bits: %lx", bits);
         break;
