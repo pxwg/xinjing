@@ -1,5 +1,6 @@
 #include "lcd_display.h"
 #include "assets/lang_config.h"
+#include "misc/lv_color.h"
 #include "settings.h"
 
 #include <vector>
@@ -10,36 +11,59 @@
 #include <esp_lvgl_port.h>
 #include <esp_psram.h>
 #include <cstring>
-
+#include <esp_random.h>
 #include "board.h"
 
 #define TAG "LcdDisplay"
 #define TAG "LcdDisplay"
 
-LV_IMG_DECLARE(Dog_Emoji_medium);
-#define DARK_BACKGROUND_COLOR       lv_color_hex(0x121212)     // Dark background
-#define DARK_TEXT_COLOR             lv_color_white()           // White text
-#define DARK_CHAT_BACKGROUND_COLOR  lv_color_hex(0x1E1E1E)     // Slightly lighter than background
-#define DARK_USER_BUBBLE_COLOR      lv_color_hex(0x1A6C37)     // Dark green
-#define DARK_ASSISTANT_BUBBLE_COLOR lv_color_hex(0x333333)     // Dark gray
-#define DARK_SYSTEM_BUBBLE_COLOR    lv_color_hex(0x2A2A2A)     // Medium gray
-#define DARK_SYSTEM_TEXT_COLOR      lv_color_hex(0xAAAAAA)     // Light gray text
-#define DARK_BORDER_COLOR           lv_color_hex(0x333333)     // Dark gray border
-#define DARK_LOW_BATTERY_COLOR      lv_color_hex(0xFF0000)     // Red for dark mode
+// ==========================================
+// 1. 声明所有表情资源
+// ==========================================
+LV_IMG_DECLARE(angry_start);     LV_IMG_DECLARE(angry_end);
+LV_IMG_DECLARE(cool_start);      LV_IMG_DECLARE(cool_end);
+LV_IMG_DECLARE(crying_start);    LV_IMG_DECLARE(crying_end);
+LV_IMG_DECLARE(delicious_start); LV_IMG_DECLARE(delicious_end);
+LV_IMG_DECLARE(funny_start);     LV_IMG_DECLARE(funny_end);
+LV_IMG_DECLARE(happy_start);     LV_IMG_DECLARE(happy_end);
+LV_IMG_DECLARE(laughing_start);  LV_IMG_DECLARE(laughing_end);
+LV_IMG_DECLARE(love_start);      LV_IMG_DECLARE(love_end);
+LV_IMG_DECLARE(neutral_start);   LV_IMG_DECLARE(neutral_end);
+LV_IMG_DECLARE(relaxed_start);   LV_IMG_DECLARE(relaxed_end);
+LV_IMG_DECLARE(sad_start);       LV_IMG_DECLARE(sad_end);
+LV_IMG_DECLARE(winking_start);   LV_IMG_DECLARE(winking_end);
+LV_IMG_DECLARE(neutral);         // 备用静态图
 
-// Color definitions for light theme
-#define LIGHT_BACKGROUND_COLOR       lv_color_white()           // White background
-#define LIGHT_TEXT_COLOR             lv_color_black()           // Black text
-#define LIGHT_CHAT_BACKGROUND_COLOR  lv_color_hex(0xE0E0E0)     // Light gray background
-#define LIGHT_USER_BUBBLE_COLOR      lv_color_hex(0x95EC69)     // WeChat green
-#define LIGHT_ASSISTANT_BUBBLE_COLOR lv_color_white()           // White
-#define LIGHT_SYSTEM_BUBBLE_COLOR    lv_color_hex(0xE0E0E0)     // Light gray
-#define LIGHT_SYSTEM_TEXT_COLOR      lv_color_hex(0x666666)     // Dark gray text
-#define LIGHT_BORDER_COLOR           lv_color_hex(0xE0E0E0)     // Light gray border
-#define LIGHT_LOW_BATTERY_COLOR      lv_color_black()           // Black for light mode
+// ==========================================
+// 2. 当前动画状态指针 (文件级静态变量)
+// ==========================================
+// 默认指向 neutral
+static const lv_image_dsc_t* current_anim_start = &neutral_start;
+static const lv_image_dsc_t* current_anim_end   = &neutral_end;
 
+// ==========================================
+// 3. 颜色主题定义 (保持不变)
+// ==========================================
+#define DARK_BACKGROUND_COLOR       lv_color_hex(0x121212)
+#define DARK_TEXT_COLOR             lv_color_white()
+#define DARK_CHAT_BACKGROUND_COLOR  lv_color_hex(0x1E1E1E)
+#define DARK_USER_BUBBLE_COLOR      lv_color_hex(0x1A6C37)
+#define DARK_ASSISTANT_BUBBLE_COLOR lv_color_hex(0x333333)
+#define DARK_SYSTEM_BUBBLE_COLOR    lv_color_hex(0x2A2A2A)
+#define DARK_SYSTEM_TEXT_COLOR      lv_color_hex(0xAAAAAA)
+#define DARK_BORDER_COLOR           lv_color_hex(0x333333)
+#define DARK_LOW_BATTERY_COLOR      lv_color_hex(0xFF0000)
 
-// Define dark theme colors
+#define LIGHT_BACKGROUND_COLOR       lv_color_white()
+#define LIGHT_TEXT_COLOR             lv_color_black()
+#define LIGHT_CHAT_BACKGROUND_COLOR  lv_color_hex(0xE0E0E0)
+#define LIGHT_USER_BUBBLE_COLOR      lv_color_hex(0x95EC69)
+#define LIGHT_ASSISTANT_BUBBLE_COLOR lv_color_white()
+#define LIGHT_SYSTEM_BUBBLE_COLOR    lv_color_hex(0xE0E0E0)
+#define LIGHT_SYSTEM_TEXT_COLOR      lv_color_hex(0x666666)
+#define LIGHT_BORDER_COLOR           lv_color_hex(0xE0E0E0)
+#define LIGHT_LOW_BATTERY_COLOR      lv_color_black()
+
 const ThemeColors DARK_THEME = {
     .background = DARK_BACKGROUND_COLOR,
     .text = DARK_TEXT_COLOR,
@@ -52,7 +76,6 @@ const ThemeColors DARK_THEME = {
     .low_battery = DARK_LOW_BATTERY_COLOR
 };
 
-// Define light theme colors
 const ThemeColors LIGHT_THEME = {
     .background = LIGHT_BACKGROUND_COLOR,
     .text = LIGHT_TEXT_COLOR,
@@ -65,6 +88,149 @@ const ThemeColors LIGHT_THEME = {
     .low_battery = LIGHT_LOW_BATTERY_COLOR
 };
 
+LV_FONT_DECLARE(font_awesome_30_4);
+
+// ==========================================
+// 4. 通用动画定时器回调
+// ==========================================
+static void blink_timer_cb(lv_timer_t* timer) {
+    lv_obj_t* img_obj = (lv_obj_t*)lv_timer_get_user_data(timer);
+    
+    if (!lv_obj_is_valid(img_obj)) return;
+
+    // 获取当前正在显示的图片源
+    const void* current_src = lv_image_get_src(img_obj);
+
+    // 逻辑：如果在显示 Start 图，就切换到 End 图（眨眼/动作），反之亦然
+    // 使用全局指针 current_anim_start/end 来判断，实现动态切换
+    if (current_src == current_anim_start) {
+        // === 睁眼 -> 闭眼 (动作瞬间) ===
+        lv_image_set_src(img_obj, current_anim_end);
+        
+        // 动作维持时间 (眨眼很快，其他表情可能稍微长一点)
+        // 随机 100ms ~ 400ms
+        uint32_t blink_close_period = 100 + (esp_random() % 300);
+        lv_timer_set_period(timer, blink_close_period);
+    } else {
+        // === 闭眼 -> 睁眼 (恢复常态) ===
+        lv_image_set_src(img_obj, current_anim_start);
+        
+        // 下一次动作的间隔时间 (随机 2秒 ~ 5秒)
+        uint32_t blink_open_period = 2000 + (esp_random() % 3000);
+        lv_timer_set_period(timer, blink_open_period);
+    }
+}
+
+// ==========================================
+// 5. 情绪权重分配逻辑
+// ==========================================
+// 根据输入的情绪字符串，更新全局指针 current_anim_start 和 current_anim_end
+static void UpdateAnimationResources(const char* emotion) {
+    uint32_t r = esp_random() % 100; // 生成 0-99 的随机数
+
+    // --- Happy (开心) ---
+    if (strcmp(emotion, "happy") == 0 || strcmp(emotion, "joy") == 0) {
+        if (r < 50) {
+            // 50% 概率：普通开心
+            current_anim_start = &happy_start;
+            current_anim_end   = &happy_end;
+        } else if (r < 75) {
+            // 25% 概率：大笑 (非常开心)
+            current_anim_start = &laughing_start;
+            current_anim_end   = &laughing_end;
+        } else if (r < 85) {
+            // 10% 概率：滑稽/有趣
+            current_anim_start = &funny_start;
+            current_anim_end   = &funny_end;
+        } else if (r < 95) {
+            // 10% 概率：美味/满足
+            current_anim_start = &delicious_start;
+            current_anim_end   = &delicious_end;
+        } else if (r < 99) {
+            // 4% 概率：眨眼 (调皮)
+            current_anim_start = &winking_start;
+            current_anim_end   = &winking_end;
+        } else {
+            // 1% 概率：Love
+            current_anim_start = &love_start;
+            current_anim_end   = &love_end;
+        }
+  }
+    // --- Sad (悲伤) ---
+    else if (strcmp(emotion, "sad") == 0 || strcmp(emotion, "grief") == 0) {
+        if (r < 60) {
+            // 60% 概率：普通悲伤
+            current_anim_start = &sad_start;
+            current_anim_end   = &sad_end;
+        } else if (r < 85) {
+            // 25% 概率：大哭
+            current_anim_start = &crying_start;
+            current_anim_end   = &crying_end;
+        } else if (r < 99) {
+            // 14% 概率：生气 (挫败感)
+            current_anim_start = &angry_start;
+            current_anim_end   = &angry_end;
+        } else {
+            // 1% 概率：Love
+            current_anim_start = &love_start;
+            current_anim_end   = &love_end;
+        }
+    }
+    // --- Angry (生气) ---
+    else if (strcmp(emotion, "angry") == 0) {
+        if (r < 70) {
+            // 70% 概率：普通生气
+            current_anim_start = &angry_start;
+            current_anim_end   = &angry_end;
+        } else if (r < 90) {
+            // 20% 概率：酷/高冷
+            current_anim_start = &cool_start;
+            current_anim_end   = &cool_end;
+        } else if (r < 99) {
+            // 9% 概率：大哭（愤怒到哭）
+            current_anim_start = &crying_start;
+            current_anim_end   = &crying_end;
+        } else {
+            // 1% 概率：Love
+            current_anim_start = &love_start;
+            current_anim_end   = &love_end;
+        }
+    }
+    // --- Calm / Neutral (平静/中性) ---
+    else if (strcmp(emotion, "calm") == 0 || strcmp(emotion, "neutral") == 0 || 
+             strcmp(emotion, "natural") == 0 || strcmp(emotion, "natrual") == 0) {
+        if (r < 70) {
+            // 70% 概率：普通中性
+            current_anim_start = &neutral_start;
+            current_anim_end   = &neutral_end;
+        } else if (r < 90) {
+            // 20% 概率：放松
+            current_anim_start = &relaxed_start;
+            current_anim_end   = &relaxed_end;
+        } else if (r < 99) {
+            // 9% 概率：酷/高冷
+            current_anim_start = &cool_start;
+            current_anim_end   = &cool_end;
+        } else {
+            // 1% 概率：Love
+            current_anim_start = &love_start;
+            current_anim_end   = &love_end;
+        }
+    }
+    // --- Fallback (默认/陌生情绪) ---
+    else {
+        // 如果遇到未知情绪，比如 "excited", "fear" 等，暂时映射到中性或随机
+        // 这里默认回退到 neutral
+        current_anim_start = &neutral_start;
+        current_anim_end   = &neutral_end;
+        
+        // 彩蛋：极小概率在未知情绪时显示 "Love"
+        if (r > 98) {
+            current_anim_start = &love_start;
+            current_anim_end   = &love_end;
+        }
+    }
+}
 
 LV_FONT_DECLARE(font_awesome_30_4);
 
@@ -858,100 +1024,51 @@ void LcdDisplay::SetPreviewImage(const lv_img_dsc_t* img_dsc) {
 #endif
 
 void LcdDisplay::SetEmotion(const char* emotion) {
-    // 增加调试日志，看看到底收到了什么
     ESP_LOGI(TAG, "SetEmotion: %s", emotion);
 
-    bool is_neutral = (strcmp(emotion, "neutral") == 0 ||
-                       strcmp(emotion, "natural") == 0 ||
-                       strcmp(emotion, "natrual") == 0);
+    // 1. 根据输入的情绪字符串，计算并更新全局资源指针
+    // 无论是什么情绪，都会尝试映射到一套 Start/End 动作
+    UpdateAnimationResources(emotion);
 
     {
-    if (is_neutral) {
-        // 注意这里判断条件变了，我们复用 gif_obj_ 这个指针变量来存图片对象
+        DisplayLockGuard lock(this);
+        
+        // 2. 隐藏旧的 UI 元素 (Emoji 文字 / 预览图)
+        if (emotion_label_) lv_obj_add_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
+        #if !CONFIG_USE_WECHAT_MESSAGE_STYLE
+        if (preview_image_) lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
+        #endif
+
+        // 3. 确保图片对象已创建
         if (gif_obj_ == nullptr) {
-            if (emotion_label_) lv_obj_add_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
-            #if !CONFIG_USE_WECHAT_MESSAGE_STYLE
-            if (preview_image_) lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
-            #endif
-
-            lv_obj_t* parent = lv_layer_top();
-            gif_obj_ = lv_img_create(parent);
-
-            if (gif_obj_ != nullptr) {
-                lv_img_set_src(gif_obj_, &Dog_Emoji_medium);
-                lv_obj_align(gif_obj_, LV_ALIGN_CENTER, 0, 0);
-                ESP_LOGI(TAG, "Static image shown");
-            } else {
-                ESP_LOGE(TAG, "Failed to create image object");
-            }
+            // 使用 lv_layer_top() 确保在最上层
+            gif_obj_ = lv_image_create(lv_layer_top());
+            lv_obj_align(gif_obj_, LV_ALIGN_CENTER, 0, 0);
+            
+            // 黑色背景保险 (防止透明图透出底色)
+            // lv_obj_set_style_bg_color(gif_obj_, lv_color_white(), 0);
+            // lv_obj_set_style_bg_opa(gif_obj_, LV_OPA_COVER, 0);
         }
-        return;
-    }
-    struct Emotion {
-        const char* icon;
-        const char* text;
-    };
 
-    static const std::vector<Emotion> emotions = {
-        {"😶", "neutral"},
-        {"🙂", "happy"},
-        {"😆", "laughing"},
-        {"😂", "funny"},
-        {"😔", "sad"},
-        {"😠", "angry"},
-        {"😭", "crying"},
-        {"😍", "loving"},
-        {"😳", "embarrassed"},
-        {"😯", "surprised"},
-        {"😱", "shocked"},
-        {"🤔", "thinking"},
-        {"😉", "winking"},
-        {"😎", "cool"},
-        {"😌", "relaxed"},
-        {"🤤", "delicious"},
-        {"😘", "kissy"},
-        {"😏", "confident"},
-        {"😴", "sleepy"},
-        {"😜", "silly"},
-        {"🙄", "confused"}
-    };
-
-    // 查找匹配的表情
-    std::string_view emotion_view(emotion);
-    auto it = std::find_if(emotions.begin(), emotions.end(),
-        [&emotion_view](const Emotion& e) { return e.text == emotion_view; });
-
-    // 尝试从 FontAwesome 获取图标
-    if (fonts_.emoji_font == nullptr || it == emotions.end()) {
-        const char* utf8 = font_awesome_get_utf8(emotion);
-        if (utf8 != nullptr) {
-            SetIcon(utf8);
+        // 4. 立即更新当前显示的图片为 Start 帧
+        if (gif_obj_ != nullptr) {
+            lv_image_set_src(gif_obj_, current_anim_start);
         }
-        return;
-    }
 
-    DisplayLockGuard lock(this);
-    if (emotion_label_ == nullptr) {
-        return;
+        // 5. 启动或重置定时器
+        if (blink_timer_ == nullptr) {
+            // 创建定时器，3秒后开始第一次动作
+            blink_timer_ = lv_timer_create(blink_timer_cb, 3000, gif_obj_);
+            ESP_LOGI(TAG, "Animation timer started");
+        } else {
+            // 如果定时器已存在，重置它，确保立即进入新的情绪节奏（Start状态）
+            lv_timer_reset(blink_timer_);
+            // 恢复为长间隔 (等待下一次动作)
+            lv_timer_set_period(blink_timer_, 2000 + (esp_random() % 3000));
+        }
     }
-
-    // 设置字体和文本
-    lv_obj_set_style_text_font(emotion_label_, fonts_.emoji_font, 0);
-    if (it != emotions.end()) {
-        lv_label_set_text(emotion_label_, it->icon);
-    } else {
-        lv_label_set_text(emotion_label_, "😶");
-    }
-
-#if !CONFIG_USE_WECHAT_MESSAGE_STYLE
-    // 确保 Emotion Label 可见，预览图隐藏
-    lv_obj_remove_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
-    if (preview_image_ != nullptr) {
-        lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
-    }
-#endif
-  }
 }
+
 void LcdDisplay::SetIcon(const char* icon) {
     DisplayLockGuard lock(this);
     if (emotion_label_ == nullptr) {

@@ -35,6 +35,7 @@ protected:
     lv_obj_t* side_bar_ = nullptr;
     lv_obj_t* preview_image_ = nullptr;
     lv_obj_t* gif_obj_ = nullptr;
+    lv_timer_t* blink_timer_ = nullptr; // 用于控制眨眼的定时器
     DisplayFonts fonts_;
     ThemeColors current_theme_;
 
