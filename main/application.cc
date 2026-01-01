@@ -436,8 +436,19 @@ void Application::Start() {
                     }
                 });
             }
+        } else if (strcmp(type->valuestring, "tts") == 0) {
+            auto state = cJSON_GetObjectItem(root, "state");
+            if (cJSON_IsString(state)) {
+                if (strcmp(state->valuestring, "stop") == 0) {
+                    Schedule([this]() {
+                        if (device_state_ == kDeviceStateSpeaking) {
+                            // 播放完都回到 Listening 继续录音，直到用户手动按键停止
+                            SetDeviceState(kDeviceStateListening);
+                        }
+                    });
+                }
+            }
         }
-        // ... (保留 tts, stt, mcp, system, alert, custom 等其他类型的处理逻辑) ...
     });
 
     bool protocol_started = protocol_->Start();
@@ -452,6 +463,12 @@ void Application::Start() {
         display->ShowNotification(message.c_str());
         display->SetChatMessage("system", "");
         audio_service_.PlaySound(Lang::Sounds::OGG_SUCCESS);
+        
+        // 开机自动启动推流
+        Schedule([this]() {
+            // 模拟按下按钮，进入持续推流模式
+            ToggleChatState(); 
+        });
     }
 }
 
@@ -618,7 +635,8 @@ void Application::SetDeviceState(DeviceState state) {
         case kDeviceStateSpeaking:
             display->SetStatus(Lang::Strings::SPEAKING);
 
-            if (listening_mode_ != kListeningModeRealtime) {
+            // 如果是 Realtime 或 ManualStop (持续推流)，都保持麦克风开启
+            if (listening_mode_ != kListeningModeRealtime && listening_mode_ != kListeningModeManualStop) {
                 audio_service_.EnableVoiceProcessing(false);
                 // Only AFE wake word can be detected in speaking mode
 #if CONFIG_USE_AFE_WAKE_WORD

@@ -49,7 +49,14 @@ void AfeAudioProcessor::Initialize(AudioCodec* codec, int frame_duration_ms) {
 
     afe_config->afe_perferred_core = 1;
     afe_config->afe_perferred_priority = 1;
-    afe_config->agc_init = false;
+    
+    // ================= 修改内容 =================
+    // 启用 AGC (自动增益控制)
+    // 之前是 false，导致声音小且底噪明显。
+    // 现在启用它，它会自动将音量提升到合适水平，并压制底噪。
+    afe_config->agc_init = true;
+    // ==========================================
+
     afe_config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
 
 #ifdef CONFIG_USE_DEVICE_AEC
