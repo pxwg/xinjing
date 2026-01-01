@@ -42,7 +42,7 @@ static const lv_image_dsc_t* current_anim_start = &neutral_start;
 static const lv_image_dsc_t* current_anim_end   = &neutral_end;
 
 static char current_emotion_str[32] = "neutral";
-static void UpdateAnimationResources(const char* emotion);
+static bool UpdateAnimationResources(const char* emotion);
 
 // ==========================================
 // 3. 颜色主题定义 (保持不变)
@@ -136,63 +136,45 @@ static void blink_timer_cb(lv_timer_t* timer) {
 // 5. 情绪权重分配逻辑
 // ==========================================
 // 根据输入的情绪字符串，更新全局指针 current_anim_start 和 current_anim_end
-static void UpdateAnimationResources(const char* emotion) {
-    uint32_t r = esp_random() % 100; // 生成 0-99 的随机数
+// 修改返回类型为 bool
+static bool UpdateAnimationResources(const char* emotion) {
+    uint32_t r = esp_random() % 100;
 
-    // --- Happy (开心) ---
+    // --- Happy 池 ---
     if (strcmp(emotion, "happy") == 0 || strcmp(emotion, "joy") == 0) {
-        if (r < 50) {
-            current_anim_start = &happy_start; current_anim_end = &happy_end; // 50% 普通开心
-        } else if (r < 75) {
-            current_anim_start = &laughing_start; current_anim_end = &laughing_end; // 25% 大笑
-        } else if (r < 85) {
-            current_anim_start = &funny_start; current_anim_end = &funny_end; // 10% 滑稽
-        } else if (r < 95) {
-            current_anim_start = &delicious_start; current_anim_end = &delicious_end; // 10% 美味
-        } else {
-            current_anim_start = &winking_start; current_anim_end = &winking_end; // 5% 眨眼
-        }
+        if (r < 50) { current_anim_start = &happy_start; current_anim_end = &happy_end; }
+        else if (r < 75) { current_anim_start = &laughing_start; current_anim_end = &laughing_end; }
+        else if (r < 85) { current_anim_start = &funny_start; current_anim_end = &funny_end; }
+        else if (r < 95) { current_anim_start = &delicious_start; current_anim_end = &delicious_end; }
+        else { current_anim_start = &winking_start; current_anim_end = &winking_end; }
+        return true;
     } 
-    // --- Sad (悲伤) ---
+    // --- Sad 池 ---
     else if (strcmp(emotion, "sad") == 0 || strcmp(emotion, "grief") == 0) {
-        if (r < 60) {
-            current_anim_start = &sad_start; current_anim_end = &sad_end; // 60% 普通悲伤
-        } else if (r < 85) {
-            current_anim_start = &crying_start; current_anim_end = &crying_end; // 25% 大哭
-        } else {
-            current_anim_start = &angry_start; current_anim_end = &angry_end; // 15% 生气
-        }
+        if (r < 60) { current_anim_start = &sad_start; current_anim_end = &sad_end; }
+        else if (r < 85) { current_anim_start = &crying_start; current_anim_end = &crying_end; }
+        else { current_anim_start = &angry_start; current_anim_end = &angry_end; }
+        return true;
     }
-    // --- Angry (生气) ---
+    // --- Angry 池 ---
     else if (strcmp(emotion, "angry") == 0) {
-        if (r < 70) {
-            current_anim_start = &angry_start; current_anim_end = &angry_end; // 70% 普通生气
-        } else if (r < 90) {
-            current_anim_start = &cool_start; current_anim_end = &cool_end; // 20% 高冷
-        } else {
-            current_anim_start = &crying_start; current_anim_end = &crying_end; // 10% 气哭
-        }
+        if (r < 70) { current_anim_start = &angry_start; current_anim_end = &angry_end; }
+        else if (r < 90) { current_anim_start = &cool_start; current_anim_end = &cool_end; }
+        else { current_anim_start = &crying_start; current_anim_end = &crying_end; }
+        return true;
     }
-    // --- Calm / Neutral (平静/中性) ---
+    // --- Neutral / Calm 池 ---
     else if (strcmp(emotion, "calm") == 0 || strcmp(emotion, "neutral") == 0 || 
              strcmp(emotion, "natural") == 0 || strcmp(emotion, "natrual") == 0) {
-        if (r < 70) {
-            current_anim_start = &neutral_start; current_anim_end = &neutral_end; // 70% 普通
-        } else if (r < 90) {
-            current_anim_start = &relaxed_start; current_anim_end = &relaxed_end; // 20% 放松
-        } else if (r < 99) {
-            current_anim_start = &cool_start; current_anim_end = &cool_end; // 9% 酷
-        } else {
-            current_anim_start = &love_start; current_anim_end = &love_end; // 1% 彩蛋Love
-        }
+        if (r < 70) { current_anim_start = &neutral_start; current_anim_end = &neutral_end; }
+        else if (r < 90) { current_anim_start = &relaxed_start; current_anim_end = &relaxed_end; }
+        else if (r < 99) { current_anim_start = &cool_start; current_anim_end = &cool_end; }
+        else { current_anim_start = &love_start; current_anim_end = &love_end; }
+        return true;
     }
-    // --- Fallback (默认) ---
-    else {
-        current_anim_start = &neutral_start; current_anim_end = &neutral_end;
-        if (r > 98) { // 2% 彩蛋
-            current_anim_start = &love_start; current_anim_end = &love_end;
-        }
-    }
+
+    // 如果不在上述池子里，返回 false
+    return false;
 }
 
 LV_FONT_DECLARE(font_awesome_30_4);
@@ -989,60 +971,72 @@ void LcdDisplay::SetPreviewImage(const lv_img_dsc_t* img_dsc) {
 void LcdDisplay::SetEmotion(const char* emotion) {
     ESP_LOGI(TAG, "SetEmotion: %s", emotion);
 
-    // 1. 定义特殊状态：如果是 gear（设置），我们不显示像素画
-    bool is_gear = (strcmp(emotion, "gear") == 0);
-    
-    bool is_neutral = (strcmp(emotion, "neutral") == 0 ||
-                       strcmp(emotion, "calm") == 0 ||
-                       strcmp(emotion, "natural") == 0 ||
-                       strcmp(emotion, "natrual") == 0);
+    // 1. 尝试匹配情绪池
+    bool has_pixel_art = UpdateAnimationResources(emotion);
 
     {
         DisplayLockGuard lock(this);
         
-        // --- 情况 A: 如果是 gear 状态，清理像素画并显示图标 ---
-        if (is_gear) {
+        if (has_pixel_art) {
+            // --- 情况 A: 命中情绪池，显示/更新像素画 ---
+            
+            // 记录当前情绪名，供定时器循环使用
+            strncpy(current_emotion_str, emotion, sizeof(current_emotion_str) - 1);
+            current_emotion_str[sizeof(current_emotion_str) - 1] = '\0';
+
+            // 隐藏旧的文本标签
+            if (emotion_label_) lv_obj_add_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
+            #if !CONFIG_USE_WECHAT_MESSAGE_STYLE
+            if (preview_image_) lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
+            #endif
+
+            // 创建或获取图片对象
+            if (gif_obj_ == nullptr) {
+                gif_obj_ = lv_image_create(lv_layer_top());
+                lv_obj_align(gif_obj_, LV_ALIGN_CENTER, 0, 0);
+                // 设为白色背景融入主题
+                lv_obj_set_style_bg_color(gif_obj_, lv_color_white(), 0);
+                lv_obj_set_style_bg_opa(gif_obj_, LV_OPA_COVER, 0);
+            }
+
+            // 设置起始帧
+            lv_image_set_src(gif_obj_, current_anim_start);
+
+            // 启动或重置定时器
+            if (blink_timer_ == nullptr) {
+                blink_timer_ = lv_timer_create(blink_timer_cb, 3000, gif_obj_);
+            } else {
+                lv_timer_reset(blink_timer_);
+                lv_timer_set_period(blink_timer_, 2000 + (esp_random() % 3000));
+            }
+
+        } else {
+            // --- 情况 B: 未命中情绪池（如 "gear" 或陌生词），彻底移除像素画 ---
+            
             if (blink_timer_ != nullptr) {
                 lv_timer_del(blink_timer_);
                 blink_timer_ = nullptr;
             }
+
             if (gif_obj_ != nullptr) {
                 lv_obj_del(gif_obj_);
                 gif_obj_ = nullptr;
             }
-            return; // 结束处理
-        }
 
-        // --- 情况 B: 如果是正常情绪状态（包括 neutral 和各种 happy/sad） ---
-        // 保存当前情绪名称用于定时器随机抽取
-        strncpy(current_emotion_str, emotion, sizeof(current_emotion_str) - 1);
-        current_emotion_str[sizeof(current_emotion_str) - 1] = '\0';
-
-        UpdateAnimationResources(emotion);
-
-        // 隐藏旧 UI
-        if (emotion_label_) lv_obj_add_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
-        #if !CONFIG_USE_WECHAT_MESSAGE_STYLE
-        if (preview_image_) lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
-        #endif
-
-        // 确保图片对象存在
-        if (gif_obj_ == nullptr) {
-            gif_obj_ = lv_image_create(lv_layer_top());
-            lv_obj_align(gif_obj_, LV_ALIGN_CENTER, 0, 0);
-            lv_obj_set_style_bg_color(gif_obj_, lv_color_white(), 0);
-            lv_obj_set_style_bg_opa(gif_obj_, LV_OPA_COVER, 0);
-        }
-
-        // 立即显示 Start 帧
-        lv_image_set_src(gif_obj_, current_anim_start);
-
-        // 启动或重置定时器
-        if (blink_timer_ == nullptr) {
-            blink_timer_ = lv_timer_create(blink_timer_cb, 3000, gif_obj_);
-        } else {
-            lv_timer_reset(blink_timer_);
-            lv_timer_set_period(blink_timer_, 2000 + (esp_random() % 3000));
+            // 恢复 Emoji 标签显示，用于展示图标或回退字符
+            if (emotion_label_) {
+                lv_obj_remove_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
+                
+                // 处理一些特殊的非情绪图标显示
+                if (strcmp(emotion, "gear") == 0) {
+                    lv_obj_set_style_text_font(emotion_label_, &font_awesome_30_4, 0);
+                    lv_label_set_text(emotion_label_, FONT_AWESOME_CLOUD); 
+                } else {
+                    // 如果是其他完全陌生的词，显示一个默认图标或保持原样
+                    lv_obj_set_style_text_font(emotion_label_, fonts_.emoji_font, 0);
+                    lv_label_set_text(emotion_label_, "😶"); 
+                }
+            }
         }
     }
 }
