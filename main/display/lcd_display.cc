@@ -41,6 +41,9 @@ LV_IMG_DECLARE(neutral);         // 备用静态图
 static const lv_image_dsc_t* current_anim_start = &neutral_start;
 static const lv_image_dsc_t* current_anim_end   = &neutral_end;
 
+static char current_emotion_str[32] = "neutral";
+static void UpdateAnimationResources(const char* emotion);
+
 // ==========================================
 // 3. 颜色主题定义 (保持不变)
 // ==========================================
@@ -101,23 +104,31 @@ static void blink_timer_cb(lv_timer_t* timer) {
     // 获取当前正在显示的图片源
     const void* current_src = lv_image_get_src(img_obj);
 
-    // 逻辑：如果在显示 Start 图，就切换到 End 图（眨眼/动作），反之亦然
-    // 使用全局指针 current_anim_start/end 来判断，实现动态切换
+    // 逻辑：
+    // 如果当前显示的是 Start (睁眼)，说明接下来要做 Action (闭眼)，直接切换。
+    // 如果当前显示的是 End (闭眼)，说明动作结束，准备回 Start (睁眼)。此时我们“重新抽卡”。
+    
     if (current_src == current_anim_start) {
-        // === 睁眼 -> 闭眼 (动作瞬间) ===
+        // [阶段 1] 睁眼 -> 闭眼 (动作开始)
         lv_image_set_src(img_obj, current_anim_end);
         
-        // 动作维持时间 (眨眼很快，其他表情可能稍微长一点)
-        // 随机 100ms ~ 400ms
-        uint32_t blink_close_period = 100 + (esp_random() % 300);
-        lv_timer_set_period(timer, blink_close_period);
+        // 动作持续时间 (眨眼很快，其他动作可能稍长)
+        uint32_t action_duration = 150 + (esp_random() % 350);
+        lv_timer_set_period(timer, action_duration);
+        
     } else {
-        // === 闭眼 -> 睁眼 (恢复常态) ===
+        // [阶段 2] 闭眼 -> 睁眼 (动作结束，准备进入下一个循环)
+        
+        // --- 核心变化点：在此处重新随机选择表情变体 ---
+        // 使用保存的 emotion 字符串重新计算 Start/End 指针
+        UpdateAnimationResources(current_emotion_str);
+        
+        // 切换到(可能更新了的) Start 图片
         lv_image_set_src(img_obj, current_anim_start);
         
-        // 下一次动作的间隔时间 (随机 2秒 ~ 5秒)
-        uint32_t blink_open_period = 2000 + (esp_random() % 3000);
-        lv_timer_set_period(timer, blink_open_period);
+        // 等待下一次动作的间隔 (2秒 ~ 5秒)
+        uint32_t idle_duration = 2000 + (esp_random() % 3000);
+        lv_timer_set_period(timer, idle_duration);
     }
 }
 
@@ -131,103 +142,55 @@ static void UpdateAnimationResources(const char* emotion) {
     // --- Happy (开心) ---
     if (strcmp(emotion, "happy") == 0 || strcmp(emotion, "joy") == 0) {
         if (r < 50) {
-            // 50% 概率：普通开心
-            current_anim_start = &happy_start;
-            current_anim_end   = &happy_end;
+            current_anim_start = &happy_start; current_anim_end = &happy_end; // 50% 普通开心
         } else if (r < 75) {
-            // 25% 概率：大笑 (非常开心)
-            current_anim_start = &laughing_start;
-            current_anim_end   = &laughing_end;
+            current_anim_start = &laughing_start; current_anim_end = &laughing_end; // 25% 大笑
         } else if (r < 85) {
-            // 10% 概率：滑稽/有趣
-            current_anim_start = &funny_start;
-            current_anim_end   = &funny_end;
+            current_anim_start = &funny_start; current_anim_end = &funny_end; // 10% 滑稽
         } else if (r < 95) {
-            // 10% 概率：美味/满足
-            current_anim_start = &delicious_start;
-            current_anim_end   = &delicious_end;
-        } else if (r < 99) {
-            // 4% 概率：眨眼 (调皮)
-            current_anim_start = &winking_start;
-            current_anim_end   = &winking_end;
+            current_anim_start = &delicious_start; current_anim_end = &delicious_end; // 10% 美味
         } else {
-            // 1% 概率：Love
-            current_anim_start = &love_start;
-            current_anim_end   = &love_end;
+            current_anim_start = &winking_start; current_anim_end = &winking_end; // 5% 眨眼
         }
-  }
+    } 
     // --- Sad (悲伤) ---
     else if (strcmp(emotion, "sad") == 0 || strcmp(emotion, "grief") == 0) {
         if (r < 60) {
-            // 60% 概率：普通悲伤
-            current_anim_start = &sad_start;
-            current_anim_end   = &sad_end;
+            current_anim_start = &sad_start; current_anim_end = &sad_end; // 60% 普通悲伤
         } else if (r < 85) {
-            // 25% 概率：大哭
-            current_anim_start = &crying_start;
-            current_anim_end   = &crying_end;
-        } else if (r < 99) {
-            // 14% 概率：生气 (挫败感)
-            current_anim_start = &angry_start;
-            current_anim_end   = &angry_end;
+            current_anim_start = &crying_start; current_anim_end = &crying_end; // 25% 大哭
         } else {
-            // 1% 概率：Love
-            current_anim_start = &love_start;
-            current_anim_end   = &love_end;
+            current_anim_start = &angry_start; current_anim_end = &angry_end; // 15% 生气
         }
     }
     // --- Angry (生气) ---
     else if (strcmp(emotion, "angry") == 0) {
         if (r < 70) {
-            // 70% 概率：普通生气
-            current_anim_start = &angry_start;
-            current_anim_end   = &angry_end;
+            current_anim_start = &angry_start; current_anim_end = &angry_end; // 70% 普通生气
         } else if (r < 90) {
-            // 20% 概率：酷/高冷
-            current_anim_start = &cool_start;
-            current_anim_end   = &cool_end;
-        } else if (r < 99) {
-            // 9% 概率：大哭（愤怒到哭）
-            current_anim_start = &crying_start;
-            current_anim_end   = &crying_end;
+            current_anim_start = &cool_start; current_anim_end = &cool_end; // 20% 高冷
         } else {
-            // 1% 概率：Love
-            current_anim_start = &love_start;
-            current_anim_end   = &love_end;
+            current_anim_start = &crying_start; current_anim_end = &crying_end; // 10% 气哭
         }
     }
     // --- Calm / Neutral (平静/中性) ---
     else if (strcmp(emotion, "calm") == 0 || strcmp(emotion, "neutral") == 0 || 
              strcmp(emotion, "natural") == 0 || strcmp(emotion, "natrual") == 0) {
         if (r < 70) {
-            // 70% 概率：普通中性
-            current_anim_start = &neutral_start;
-            current_anim_end   = &neutral_end;
+            current_anim_start = &neutral_start; current_anim_end = &neutral_end; // 70% 普通
         } else if (r < 90) {
-            // 20% 概率：放松
-            current_anim_start = &relaxed_start;
-            current_anim_end   = &relaxed_end;
+            current_anim_start = &relaxed_start; current_anim_end = &relaxed_end; // 20% 放松
         } else if (r < 99) {
-            // 9% 概率：酷/高冷
-            current_anim_start = &cool_start;
-            current_anim_end   = &cool_end;
+            current_anim_start = &cool_start; current_anim_end = &cool_end; // 9% 酷
         } else {
-            // 1% 概率：Love
-            current_anim_start = &love_start;
-            current_anim_end   = &love_end;
+            current_anim_start = &love_start; current_anim_end = &love_end; // 1% 彩蛋Love
         }
     }
-    // --- Fallback (默认/陌生情绪) ---
+    // --- Fallback (默认) ---
     else {
-        // 如果遇到未知情绪，比如 "excited", "fear" 等，暂时映射到中性或随机
-        // 这里默认回退到 neutral
-        current_anim_start = &neutral_start;
-        current_anim_end   = &neutral_end;
-        
-        // 彩蛋：极小概率在未知情绪时显示 "Love"
-        if (r > 98) {
-            current_anim_start = &love_start;
-            current_anim_end   = &love_end;
+        current_anim_start = &neutral_start; current_anim_end = &neutral_end;
+        if (r > 98) { // 2% 彩蛋
+            current_anim_start = &love_start; current_anim_end = &love_end;
         }
     }
 }
@@ -1026,44 +989,59 @@ void LcdDisplay::SetPreviewImage(const lv_img_dsc_t* img_dsc) {
 void LcdDisplay::SetEmotion(const char* emotion) {
     ESP_LOGI(TAG, "SetEmotion: %s", emotion);
 
-    // 1. 根据输入的情绪字符串，计算并更新全局资源指针
-    // 无论是什么情绪，都会尝试映射到一套 Start/End 动作
-    UpdateAnimationResources(emotion);
+    // 1. 定义特殊状态：如果是 gear（设置），我们不显示像素画
+    bool is_gear = (strcmp(emotion, "gear") == 0);
+    
+    bool is_neutral = (strcmp(emotion, "neutral") == 0 ||
+                       strcmp(emotion, "calm") == 0 ||
+                       strcmp(emotion, "natural") == 0 ||
+                       strcmp(emotion, "natrual") == 0);
 
     {
         DisplayLockGuard lock(this);
         
-        // 2. 隐藏旧的 UI 元素 (Emoji 文字 / 预览图)
+        // --- 情况 A: 如果是 gear 状态，清理像素画并显示图标 ---
+        if (is_gear) {
+            if (blink_timer_ != nullptr) {
+                lv_timer_del(blink_timer_);
+                blink_timer_ = nullptr;
+            }
+            if (gif_obj_ != nullptr) {
+                lv_obj_del(gif_obj_);
+                gif_obj_ = nullptr;
+            }
+            return; // 结束处理
+        }
+
+        // --- 情况 B: 如果是正常情绪状态（包括 neutral 和各种 happy/sad） ---
+        // 保存当前情绪名称用于定时器随机抽取
+        strncpy(current_emotion_str, emotion, sizeof(current_emotion_str) - 1);
+        current_emotion_str[sizeof(current_emotion_str) - 1] = '\0';
+
+        UpdateAnimationResources(emotion);
+
+        // 隐藏旧 UI
         if (emotion_label_) lv_obj_add_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
         #if !CONFIG_USE_WECHAT_MESSAGE_STYLE
         if (preview_image_) lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
         #endif
 
-        // 3. 确保图片对象已创建
+        // 确保图片对象存在
         if (gif_obj_ == nullptr) {
-            // 使用 lv_layer_top() 确保在最上层
             gif_obj_ = lv_image_create(lv_layer_top());
             lv_obj_align(gif_obj_, LV_ALIGN_CENTER, 0, 0);
-            
-            // 黑色背景保险 (防止透明图透出底色)
-            // lv_obj_set_style_bg_color(gif_obj_, lv_color_white(), 0);
-            // lv_obj_set_style_bg_opa(gif_obj_, LV_OPA_COVER, 0);
+            lv_obj_set_style_bg_color(gif_obj_, lv_color_white(), 0);
+            lv_obj_set_style_bg_opa(gif_obj_, LV_OPA_COVER, 0);
         }
 
-        // 4. 立即更新当前显示的图片为 Start 帧
-        if (gif_obj_ != nullptr) {
-            lv_image_set_src(gif_obj_, current_anim_start);
-        }
+        // 立即显示 Start 帧
+        lv_image_set_src(gif_obj_, current_anim_start);
 
-        // 5. 启动或重置定时器
+        // 启动或重置定时器
         if (blink_timer_ == nullptr) {
-            // 创建定时器，3秒后开始第一次动作
             blink_timer_ = lv_timer_create(blink_timer_cb, 3000, gif_obj_);
-            ESP_LOGI(TAG, "Animation timer started");
         } else {
-            // 如果定时器已存在，重置它，确保立即进入新的情绪节奏（Start状态）
             lv_timer_reset(blink_timer_);
-            // 恢复为长间隔 (等待下一次动作)
             lv_timer_set_period(blink_timer_, 2000 + (esp_random() % 3000));
         }
     }
