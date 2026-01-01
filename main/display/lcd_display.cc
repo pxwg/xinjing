@@ -16,8 +16,7 @@
 #define TAG "LcdDisplay"
 #define TAG "LcdDisplay"
 
-extern const uint8_t neutral_gif_start[] asm("_binary_neutral_gif_start");
-extern const uint8_t neutral_gif_end[]   asm("_binary_neutral_gif_end");
+LV_IMG_DECLARE(Dog_Emoji_medium);
 #define DARK_BACKGROUND_COLOR       lv_color_hex(0x121212)     // Dark background
 #define DARK_TEXT_COLOR             lv_color_white()           // White text
 #define DARK_CHAT_BACKGROUND_COLOR  lv_color_hex(0x1E1E1E)     // Slightly lighter than background
@@ -867,54 +866,26 @@ void LcdDisplay::SetEmotion(const char* emotion) {
                        strcmp(emotion, "natrual") == 0);
 
     {
-        DisplayLockGuard lock(this);
+    if (is_neutral) {
+        // 注意这里判断条件变了，我们复用 gif_obj_ 这个指针变量来存图片对象
+        if (gif_obj_ == nullptr) {
+            if (emotion_label_) lv_obj_add_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
+            #if !CONFIG_USE_WECHAT_MESSAGE_STYLE
+            if (preview_image_) lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
+            #endif
 
-        if (is_neutral) {
-            if (gif_obj_ == nullptr) {
-                // ... 隐藏其他控件的代码 ...
-                if (emotion_label_) lv_obj_add_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
-#if !CONFIG_USE_WECHAT_MESSAGE_STYLE
-                if (preview_image_) lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
-#endif
+            lv_obj_t* parent = lv_layer_top();
+            gif_obj_ = lv_img_create(parent);
 
-                // 创建对象
-                lv_obj_t* parent = lv_layer_top();
-                ESP_LOGI(TAG, "Free PSRAM before GIF: %d", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-                gif_obj_ = lv_gif_create(parent);
-                ESP_LOGI(TAG, "Free PSRAM after GIF object: %d", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-        
-                if (gif_obj_ == nullptr) {
-                    ESP_LOGE(TAG, "Failed to create GIF object! Is LV_USE_GIF enabled?");
-                    // 回退显示文本，避免白屏
-                    if (emotion_label_) {
-                        lv_obj_remove_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
-                        lv_label_set_text(emotion_label_, "GIF Error");
-                    }
-                    return;
-                }
-
-                lv_gif_set_src(gif_obj_, neutral_gif_start);
-                // 移除所有边框和背景
-                lv_obj_set_style_bg_opa(gif_obj_, LV_OPA_TRANSP, 0);
-                lv_obj_set_style_border_width(gif_obj_, 0, 0);
-                // 居中
-                lv_obj_align(gif_obj_, LV_ALIGN_CENTER, 0, 0);
-                // 移到最前
-                lv_obj_move_foreground(gif_obj_);
-
-                ESP_LOGI(TAG, "GIF created and playing successfully");
-            }
-            return;
-        } else {
-            // ... 销毁 GIF 的代码 ...
             if (gif_obj_ != nullptr) {
-                lv_obj_del(gif_obj_);
-                gif_obj_ = nullptr;
-                ESP_LOGI(TAG, "GIF stopped");
+                lv_img_set_src(gif_obj_, &Dog_Emoji_medium);
+                lv_obj_align(gif_obj_, LV_ALIGN_CENTER, 0, 0);
+                ESP_LOGI(TAG, "Static image shown");
+            } else {
+                ESP_LOGE(TAG, "Failed to create image object");
             }
-            // 记得恢复 emotion_label_ 显示
-            if (emotion_label_) lv_obj_remove_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
         }
+        return;
     }
     struct Emotion {
         const char* icon;
@@ -979,8 +950,8 @@ void LcdDisplay::SetEmotion(const char* emotion) {
         lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
     }
 #endif
+  }
 }
-
 void LcdDisplay::SetIcon(const char* icon) {
     DisplayLockGuard lock(this);
     if (emotion_label_ == nullptr) {
